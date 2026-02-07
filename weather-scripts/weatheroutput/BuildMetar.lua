@@ -2,6 +2,7 @@ local BuildMetar = {}
 
 local THIS_FILE = DCSDynamicWeather.MODULE_NAME .. ".BuildMetar"
 local STATION_REFERENCE_ZONE_NAME = DCSDynamicWeather.JSON.getValue("stationReferenceZoneName", DCSDynamicWeather.CONFIG_PATH)
+local TIME_OFFSET = DCSDynamicWeather.JSON.getValue("time_offset", DCSDynamicWeather.CONFIG_PATH)
 
 local STANDARD_PRESSURE_PASCAL = 101325
 local PASCALS_TO_INHG = 0.0295299830714
@@ -105,24 +106,26 @@ function BuildMetar.getDayAndTimeZulu()
     local minutes = math.floor(((time / 60) - (hours * 60)) + 0.5)
     DCSDynamicWeather.Logger.info(THIS_METHOD, "Local Time: Day: " .. day .. " Hour: " .. hours .. " Minute: " .. minutes)
 
-    local timeChangeToZulu
-    local timeChangeToZuluTbl = {}
-    timeChangeToZuluTbl["Caucasus"] = -4
-    timeChangeToZuluTbl["PersianGulf"] = -4
-    timeChangeToZuluTbl["Nevada"] = 7
-    timeChangeToZuluTbl["MarianaIslands"] = 2
-    timeChangeToZuluTbl["Syria"] = -3
-    timeChangeToZuluTbl["SouthAtlantic"] = -3
+	-- WARNING: THIS NO LONGER GIVES ZULU, INSTEAD IT RETURNS LOCAL TIME FOR CONVENIENCE
 
-    if timeChangeToZuluTbl[theatre] then
-        timeChangeToZulu = timeChangeToZuluTbl[theatre]
-    else
-        DCSDynamicWeather.Logger.warning(THIS_METHOD, "Theatre not detected, no time conversion set.")
-        timeChangeToZulu = 0
-    end
-    DCSDynamicWeather.Logger.info(THIS_METHOD, "Zulu Time: Day: " .. day .. " Hour: " .. hours .. " Minute: " .. minutes)
+    --local timeChangeToZulu
+    --local timeChangeToZuluTbl = {}
+    --timeChangeToZuluTbl["Caucasus"] = -4
+    --timeChangeToZuluTbl["PersianGulf"] = -4
+    --timeChangeToZuluTbl["Nevada"] = 7
+    --timeChangeToZuluTbl["MarianaIslands"] = 2
+    --timeChangeToZuluTbl["Syria"] = -3
+    --timeChangeToZuluTbl["SouthAtlantic"] = -3
 
-    hours = math.abs(hours + timeChangeToZulu)
+    --if timeChangeToZuluTbl[theatre] then
+    --    timeChangeToZulu = timeChangeToZuluTbl[theatre]
+    --else
+    --    DCSDynamicWeather.Logger.warning(THIS_METHOD, "Theatre not detected, no time conversion set.")
+    --    timeChangeToZulu = 0
+    --end
+    --DCSDynamicWeather.Logger.info(THIS_METHOD, "Zulu Time: Day: " .. day .. " Hour: " .. hours .. " Minute: " .. minutes)
+
+    hours = math.abs(hours + timeChangeToZulu + TIME_OFFSET)
     if hours >= 24 then
         hours = hours % 24
         day = day + 1
@@ -135,7 +138,7 @@ function BuildMetar.getDayAndTimeZulu()
         minutes = "0" .. minutes
     end
 
-    return os.date("%d") .. hours .. minutes .. "Z"
+    return os.date("%d") .. hours .. minutes .. "L"
 end
 
 function BuildMetar.getVisibility()

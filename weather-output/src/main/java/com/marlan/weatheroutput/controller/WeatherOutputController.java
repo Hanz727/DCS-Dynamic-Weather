@@ -7,6 +7,7 @@ import com.marlan.shared.model.Config;
 import com.marlan.shared.model.DTO;
 import com.marlan.shared.utilities.FileHandler;
 import com.marlan.shared.utilities.Log;
+import com.marlan.weatheroutput.service.airplan.AirplanClient;
 import com.marlan.weatheroutput.service.discord.DiscordClient;
 import com.marlan.weatheroutput.service.sheets.SheetsClient;
 
@@ -47,6 +48,19 @@ public class WeatherOutputController {
                   ]
                 }
                 """.replace("$METAR", dto.getMetar());
+				
+		//int zIndex = jsonInput.indexOf("Z");
+		//String timestampDigits = jsonInput.substring(zIndex - 4, zIndex - 2);
+		//int ofsettedHour = Integer.parseInt(timestampDigits) + config.getTimeOffset();
+		
+		//if (ofsettedHour > 24) {
+		//	ofsettedHour -= 24;
+		//} else if (ofsettedHour < 0) {
+		//	ofsettedHour += 24;
+		//}
+
+        AirplanClient airplanClient = new AirplanClient();
+        airplanClient.postMetar(dto.getMetar());
 
         if (config.isOutputToDiscord()) {
             DiscordClient discordClient = new DiscordClient(WORKING_DIR, jsonInput);

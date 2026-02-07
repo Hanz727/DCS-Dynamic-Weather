@@ -43,9 +43,9 @@ public class MissionEditor {
         String cloudsPreset = buildCloudsPreset(selectCloudsPresetSuffix(missionValues.getStation().getMetar()));
 
         mission = replaceCloudsPreset(mission, cloudsPreset);
-        mission = replaceWind8000(mission, windSpeed8000, windDirection8000);
-        mission = replaceWind2000(mission, windSpeed2000, windDirection2000);
-        mission = replaceWindGround(mission, windSpeedGround, windDirectionGround);
+        //mission = replaceWind8000(mission, windSpeed8000, windDirection8000);
+        //mission = replaceWind2000(mission, windSpeed2000, windDirection2000);
+        //mission = replaceWindGround(mission, windSpeedGround, windDirectionGround);
         mission = replaceHour(mission, missionValues.getTime().getHour());
         mission = replaceDay(mission, missionValues.getTime().getDay());
         mission = replaceMonth(mission, missionValues.getTime().getMonth());
@@ -133,8 +133,9 @@ public class MissionEditor {
 
     @NotNull
     private String replaceHour(String mission, float hour) {
-        Pattern pattern = Pattern.compile("^\\s{4}\\[\"start_time\"]\\s=\\s.*,$", Pattern.MULTILINE);
+        Pattern pattern = Pattern.compile("^(?:\\s{4}|\\t)\\[\"start_time\"]\\s=\\s.*,$", Pattern.MULTILINE);
         Matcher matcher = pattern.matcher(mission);
+
         if (!matcher.find()) {
             log.error("Regex match failed, Hour not set.");
             return mission;

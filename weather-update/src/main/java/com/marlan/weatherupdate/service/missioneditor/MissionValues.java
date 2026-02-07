@@ -8,6 +8,7 @@ import com.marlan.weatherupdate.model.metar.fields.Temperature;
 import com.marlan.weatherupdate.model.metar.fields.WindDirection;
 import com.marlan.weatherupdate.model.metar.fields.WindSpeed;
 import com.marlan.weatherupdate.model.station.AVWXStation;
+import com.marlan.weatherupdate.service.airplanclient.AirplanClient;
 import com.marlan.weatherupdate.service.missioneditor.values.Station;
 import com.marlan.weatherupdate.service.missioneditor.values.Time;
 import com.marlan.weatherupdate.service.missioneditor.values.Wind;
@@ -20,6 +21,8 @@ import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public class MissionValues {
     private static final Log log = Log.getInstance();
@@ -29,6 +32,7 @@ public class MissionValues {
     private final Config config;
     private final DTO dto;
     private final AVWXMetar metarAVWX;
+    private final AirplanClient airplanClient;
 
     @Getter
     private final Wind wind;
@@ -37,10 +41,11 @@ public class MissionValues {
     @Getter
     private final Time time;
 
-    public MissionValues(Config config, DTO dto, AVWXStation stationAVWX, AVWXMetar metarAVWX) {
+    public MissionValues(Config config, DTO dto, AVWXStation stationAVWX, AVWXMetar metarAVWX, AirplanClient airplanClient) {
         this.config = config;
         this.dto = dto;
         this.metarAVWX = metarAVWX;
+        this.airplanClient = airplanClient;
         this.wind = setWind();
         this.station = setStation();
         ZonedDateTime zonedDateTime = ZonedDateTime.now(ZoneId.of(StationInfoUtility.getZoneId(stationAVWX.getLatitude(), stationAVWX.getLongitude())));
@@ -125,6 +130,14 @@ public class MissionValues {
     private float setHour(ZonedDateTime zonedDateTime) {
         float assignedHour;
         String dtoWeatherType = dto.getWeatherType();
+
+        if (dtoWeatherType.equals("real")) {
+            String nextEventTime = airplanClient.getNextEvtTime();
+            if (nextEventTime != null) {
+                dtoWeatherType = nextEventTime;
+            }
+        }
+
         if (dtoWeatherType.equals("real")) {
             if (zonedDateTime.getHour() + config.getTimeOffset() < 0) {
                 assignedHour = (float) 24 + zonedDateTime.getHour() + config.getTimeOffset();
@@ -151,13 +164,18 @@ public class MissionValues {
                 assignedHour = ((float)(closestEvent - preEventTime) / 3600) % 24;
             }
         } else {
-            switch (dtoWeatherType) {
-                case "real0400" -> assignedHour = 4;
-                case "real0600" -> assignedHour = 6;
-                case "real1800" -> assignedHour = 18;
-                case "real2200" -> assignedHour = 22;
-                case "real0000", "clearNight" -> assignedHour = 0;
-                default -> assignedHour = 12;
+            Pattern pattern = Pattern.compile("(real|clear)(\\d{4})");
+            Matcher matcher = pattern.matcher(dtoWeatherType);
+
+            if (matcher.matches()) {
+                String timeStr = matcher.group(2);
+                int hour = Integer.parseInt(timeStr.substring(0, 2));
+                int minute = Integer.parseInt(timeStr.substring(2, 4));
+                assignedHour =  hour + minute / 60.0f;
+            } else if ("clearNight".equals(dtoWeatherType)) {
+                assignedHour = 0.0f;
+            } else {
+                assignedHour = 12.0f;
             }
         }
         return assignedHour;
