@@ -1,5 +1,5 @@
-local DCS_DYNAMIC_WEATHER_HOOK_VERSION = "1.1.0"
-local DCSDynamicWeather = {}
+local DCS_DYNAMIC_WEATHER_HOOK_VERSION = "1.2.0"
+DCSDynamicWeather = {}
 local DCSDynamicWeatherCallbacks = {}
 DCSDynamicWeather.Logger = {}
 
@@ -14,6 +14,10 @@ local waiting = false
 local checkRestartTime = 0
 local initialPauseStateSet = false
 local injectedRestart = false
+
+-- UDP Server Configuration
+local UDP_PORT = 42674
+local udpSocket = nil
 
 function DCSDynamicWeatherCallbacks.onMissionLoadEnd()
     local THIS_METHOD = "DCSDynamicWeatherCallbacks.onMissionLoadEnd"
@@ -58,6 +62,10 @@ end
 
 function DCSDynamicWeatherCallbacks.onSimulationFrame()
     local THIS_METHOD = "DCSDynamicWeatherCallbacks.onSimulationFrame"
+
+    -- Poll UDP for incoming commands
+    pollUDP()
+
     if DCS.getRealTime() > simulationStartTime + 5 and not initialPauseStateSet then
         DCS.setPause(initialPauseState)
         DCSDynamicWeather.Logger.info(THIS_METHOD, "Pause State set to: " .. tostring(initialPauseState))
@@ -104,6 +112,9 @@ end
 
 function DCSDynamicWeather.injectMissionNameToScriptEnv()
     local missionName = DCS.getMissionName()
+
+    local initCode = [[a_do_script("if not DCSDynamicWeather then DCSDynamicWeather = {} end")]]
+    DCSDynamicWeather.injectCodeStringToScriptEnv(initCode)
 
     local code = [[a_do_script("DCSDynamicWeather.MISSION_NAME = \"]] .. missionName .. [[\"")]]
     DCSDynamicWeather.injectCodeStringToScriptEnv(code)
@@ -192,12 +203,131 @@ function DCSDynamicWeather.Logger.printLog(logSource, message, level)
     io.close(logFile)
 end
 
+-- UDP Server Functions
+local function initUDPServer()
+    local THIS_METHOD = "initUDPServer"
+    local success, socket = pcall(require, "socket")
+    if not success then
+        DCSDynamicWeather.Logger.error(THIS_METHOD, "Failed to load socket library: " .. tostring(socket))
+        return false
+    end
+
+    udpSocket = socket.udp()
+    if not udpSocket then
+        DCSDynamicWeather.Logger.error(THIS_METHOD, "Failed to create UDP socket")
+        return false
+    end
+
+    local result, err = udpSocket:setsockname("127.0.0.1", UDP_PORT)
+    if not result then
+        DCSDynamicWeather.Logger.error(THIS_METHOD, "Failed to bind to port " .. UDP_PORT .. ": " .. tostring(err))
+        return false
+    end
+
+    udpSocket:settimeout(0) -- Non-blocking
+    DCSDynamicWeather.Logger.info(THIS_METHOD, "UDP server listening on 127.0.0.1:" .. UDP_PORT)
+    return true
+end
+
+local function getPlayerCount()
+    local players = net.get_player_list()
+    if not players then
+        return 0
+    end
+    local count = 0
+    for _ in pairs(players) do
+        count = count + 1
+    end
+    -- Subtract 1 for the server itself
+    return count > 0 and count - 1 or 0
+end
+
+local function isValidWeatherType(weatherType)
+    -- Valid formats: real, clear, realHHMM, clearHHMM, cvops, cvopsclear
+    if weatherType == "real" or weatherType == "clear" or
+       weatherType == "cvops" or weatherType == "cvopsclear" then
+        return true
+    end
+    if string.match(weatherType, "^real%d%d%d%d$") or
+       string.match(weatherType, "^clear%d%d%d%d$") then
+        return true
+    end
+    return false
+end
+
+function DCSDynamicWeather.restartWithWeather(weatherType)
+    local THIS_METHOD = "restartWithWeather"
+    DCSDynamicWeather.Logger.info(THIS_METHOD, "Triggering restart with weather: " .. weatherType)
+    local code = [[a_do_script("DCSDynamicWeather.Mission.loadNextMission(']] .. weatherType .. [[')")]]
+    DCSDynamicWeather.injectCodeStringToScriptEnv(code)
+end
+
+local function handleUDPMessage(data, ip, port)
+    local THIS_METHOD = "handleUDPMessage"
+    data = string.gsub(data, "[\r\n]", "") -- Trim newlines
+    DCSDynamicWeather.Logger.info(THIS_METHOD, "Received: '" .. data .. "' from " .. ip .. ":" .. port)
+
+    local cmd, arg = string.match(data, "^(%w+):?(.*)$")
+    cmd = cmd and string.lower(cmd) or ""
+    arg = arg or ""
+
+    local response = ""
+
+    if cmd == "players" then
+        response = tostring(getPlayerCount())
+
+    elseif cmd == "restart" then
+        if not missionLoaded then
+            response = "error:no mission loaded"
+        elseif arg == "" then
+            response = "error:missing weather type"
+        elseif not isValidWeatherType(arg) then
+            response = "error:invalid weather type"
+        else
+            DCSDynamicWeather.restartWithWeather(arg)
+            response = "ok"
+        end
+
+    elseif cmd == "status" then
+        local uptime = math.floor(DCS.getRealTime() - simulationStartTime)
+        local mission = DCS.getMissionName() or "none"
+        local players = getPlayerCount()
+        local loaded = missionLoaded and "true" or "false"
+        response = string.format("%s|%d|%d|%s", mission, uptime, players, loaded)
+
+    else
+        response = "error:unknown command"
+    end
+
+    DCSDynamicWeather.Logger.info(THIS_METHOD, "Response: " .. response)
+    udpSocket:sendto(response .. "\n", ip, port)
+end
+
+local function pollUDP()
+    if not udpSocket then
+        return
+    end
+
+    -- Process up to 10 messages per frame to avoid blocking
+    for _ = 1, 10 do
+        local data, ip, port = udpSocket:receivefrom()
+        if not data then
+            break
+        end
+        local success, err = pcall(handleUDPMessage, data, ip, port)
+        if not success then
+            DCSDynamicWeather.Logger.error("pollUDP", "Error handling message: " .. tostring(err))
+        end
+    end
+end
+
 local function main()
     DCSDynamicWeather.Logger.info(THIS_FILE, "Loading DCS Dynamic Weather Version: " .. DCS_DYNAMIC_WEATHER_HOOK_VERSION .. "...")
     DCSDynamicWeather.Logger.info(THIS_FILE, "DCS_ROOT: " .. DCS_ROOT)
     DCSDynamicWeather.Logger.info(THIS_FILE, "DCS_SG: " .. DCS_SG)
 
     DCSDynamicWeather.desanitizeMissionScripting()
+    initUDPServer()
     DCS.setUserCallbacks(DCSDynamicWeatherCallbacks)
 
     DCSDynamicWeather.Logger.info(THIS_FILE, "Loaded.")
