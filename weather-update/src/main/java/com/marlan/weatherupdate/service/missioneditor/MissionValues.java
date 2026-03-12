@@ -131,7 +131,7 @@ public class MissionValues {
         float assignedHour;
         String dtoWeatherType = dto.getWeatherType();
 
-        if (dtoWeatherType.equals("real")) {
+        if (dtoWeatherType.equals("real") || dtoWeatherType.equals("clear")) {
             String nextEventTime = airplanClient.getNextEvtTime();
             if (nextEventTime != null) {
                 dtoWeatherType = nextEventTime;
