@@ -95,50 +95,24 @@ function BuildMetar.getWind(referencePoint)
 end
 
 function BuildMetar.getDayAndTimeZulu()
-    local THIS_METHOD = THIS_FILE .. ".getDayAndTime24UTC"
+    local THIS_METHOD = THIS_FILE .. ".getDayAndTimeLocal"
 
-    local theatre = env.mission.theatre
-    DCSDynamicWeather.Logger.info(THIS_METHOD, "Theatre: " .. theatre)
+    -- Reports mission LOCAL time (suffix "L"). TIME_OFFSET is already baked into
+    -- the mission start_time by weather-update, so do not re-apply it here.
 
     local time = timer.getAbsTime()
     local day = env.mission.date.Day
     local hours = math.floor(time / 3600)
     local minutes = math.floor(((time / 60) - (hours * 60)) + 0.5)
+
+    if hours >= 24 then
+        day = day + math.floor(hours / 24)
+        hours = hours % 24
+    end
+
     DCSDynamicWeather.Logger.info(THIS_METHOD, "Local Time: Day: " .. day .. " Hour: " .. hours .. " Minute: " .. minutes)
 
-	-- WARNING: THIS NO LONGER GIVES ZULU, INSTEAD IT RETURNS LOCAL TIME FOR CONVENIENCE
-
-    --local timeChangeToZulu
-    --local timeChangeToZuluTbl = {}
-    --timeChangeToZuluTbl["Caucasus"] = -4
-    --timeChangeToZuluTbl["PersianGulf"] = -4
-    --timeChangeToZuluTbl["Nevada"] = 7
-    --timeChangeToZuluTbl["MarianaIslands"] = 2
-    --timeChangeToZuluTbl["Syria"] = -3
-    --timeChangeToZuluTbl["SouthAtlantic"] = -3
-
-    --if timeChangeToZuluTbl[theatre] then
-    --    timeChangeToZulu = timeChangeToZuluTbl[theatre]
-    --else
-    --    DCSDynamicWeather.Logger.warning(THIS_METHOD, "Theatre not detected, no time conversion set.")
-    --    timeChangeToZulu = 0
-    --end
-    --DCSDynamicWeather.Logger.info(THIS_METHOD, "Zulu Time: Day: " .. day .. " Hour: " .. hours .. " Minute: " .. minutes)
-
-    hours = math.abs(hours + timeChangeToZulu + TIME_OFFSET)
-    if hours >= 24 then
-        hours = hours % 24
-        day = day + 1
-    end
-
-    if hours < 10 then
-        hours = "0" .. hours
-    end
-    if minutes < 10 then
-        minutes = "0" .. minutes
-    end
-
-    return os.date("%d") .. hours .. minutes .. "L"
+    return string.format("%02d%02d%02dL", day, hours, minutes)
 end
 
 function BuildMetar.getVisibility()
@@ -188,46 +162,87 @@ function BuildMetar.getWeatherMods() -- TODO: TS = Thunderstorm, DS = Dust Storm
     return weatherMods
 end
 
-function BuildMetar.getCloudCover()
-    local cloudsPreset = env.mission.weather.clouds.preset
-    local cloudsPresetTbl = {}
+-- Preset name -> list of {code, altHundredsFt} layers.
+-- Mirrors weather.DecodePreset in github.com/evogelsa/DCS-real-weather.
+BuildMetar.DECODE_PRESET = {
+    ["Preset1"]        = { { code = "FEW", alt =  70 } },
+    ["Preset2"]        = { { code = "FEW", alt =  80 }, { code = "SCT", alt = 230 } },
+    ["Preset3"]        = { { code = "SCT", alt =  80 }, { code = "FEW", alt = 210 } },
+    ["Preset4"]        = { { code = "SCT", alt =  80 }, { code = "SCT", alt = 240 } },
+    ["Preset5"]        = { { code = "SCT", alt = 140 }, { code = "FEW", alt = 270 }, { code = "BKN", alt = 400 } },
+    ["Preset6"]        = { { code = "SCT", alt =  80 }, { code = "FEW", alt = 400 } },
+    ["Preset7"]        = { { code = "BKN", alt =  75 }, { code = "SCT", alt = 210 }, { code = "SCT", alt = 400 } },
+    ["Preset8"]        = { { code = "SCT", alt = 180 }, { code = "FEW", alt = 360 }, { code = "FEW", alt = 400 } },
+    ["Preset9"]        = { { code = "BKN", alt =  75 }, { code = "SCT", alt = 200 }, { code = "FEW", alt = 410 } },
+    ["Preset10"]       = { { code = "SCT", alt = 180 }, { code = "FEW", alt = 360 }, { code = "FEW", alt = 400 } },
+    ["Preset11"]       = { { code = "BKN", alt = 180 }, { code = "BKN", alt = 320 }, { code = "FEW", alt = 410 } },
+    ["Preset12"]       = { { code = "BKN", alt = 120 }, { code = "SCT", alt = 220 }, { code = "FEW", alt = 410 } },
+    ["Preset13"]       = { { code = "BKN", alt = 120 }, { code = "BKN", alt = 260 }, { code = "FEW", alt = 410 } },
+    ["Preset14"]       = { { code = "BKN", alt =  70 }, { code = "FEW", alt = 410 } },
+    ["Preset15"]       = { { code = "SCT", alt = 140 }, { code = "BKN", alt = 240 }, { code = "FEW", alt = 400 } },
+    ["Preset16"]       = { { code = "BKN", alt = 140 }, { code = "BKN", alt = 280 }, { code = "FEW", alt = 400 } },
+    ["Preset17"]       = { { code = "BKN", alt =  70 }, { code = "BKN", alt = 200 }, { code = "BKN", alt = 320 } },
+    ["Preset18"]       = { { code = "BKN", alt = 130 }, { code = "BKN", alt = 250 }, { code = "BKN", alt = 380 } },
+    ["Preset19"]       = { { code = "OVC", alt =  90 }, { code = "BKN", alt = 230 }, { code = "BKN", alt = 310 } },
+    ["Preset20"]       = { { code = "BKN", alt = 130 }, { code = "BKN", alt = 280 }, { code = "FEW", alt = 380 } },
+    ["Preset21"]       = { { code = "BKN", alt =  70 }, { code = "OVC", alt = 170 } },
+    ["Preset22"]       = { { code = "OVC", alt =  70 }, { code = "BKN", alt = 170 } },
+    ["Preset23"]       = { { code = "OVC", alt = 110 }, { code = "BKN", alt = 180 }, { code = "SCT", alt = 320 } },
+    ["Preset24"]       = { { code = "OVC", alt =  30 }, { code = "OVC", alt = 170 }, { code = "BKN", alt = 340 } },
+    ["Preset25"]       = { { code = "OVC", alt = 120 }, { code = "OVC", alt = 220 }, { code = "OVC", alt = 400 } },
+    ["Preset26"]       = { { code = "OVC", alt =  90 }, { code = "BKN", alt = 230 }, { code = "SCT", alt = 320 } },
+    ["Preset27"]       = { { code = "OVC", alt =  80 }, { code = "BKN", alt = 250 }, { code = "BKN", alt = 340 } },
+    ["RainyPreset1"]   = { { code = "OVC", alt =  30 }, { code = "OVC", alt = 280 }, { code = "FEW", alt = 400 } },
+    ["RainyPreset2"]   = { { code = "OVC", alt =  30 }, { code = "SCT", alt = 180 }, { code = "FEW", alt = 400 } },
+    ["RainyPreset3"]   = { { code = "OVC", alt =  60 }, { code = "OVC", alt = 190 }, { code = "SCT", alt = 340 } },
+    ["RainyPreset4"]   = { { code = "SCT", alt =  80 }, { code = "FEW", alt = 360 } },
+    ["RainyPreset5"]   = { { code = "BKN", alt =  70 }, { code = "BKN", alt = 200 }, { code = "BKN", alt = 320 } },
+    ["RainyPreset6"]   = { { code = "OVC", alt =  90 }, { code = "BKN", alt = 230 }, { code = "BKN", alt = 310 } },
+    ["NEWRAINPRESET4"] = { { code = "SCT", alt =  80 }, { code = "SCT", alt = 120 } },
+}
 
-    cloudsPresetTbl["Preset1"] = "FEW070"
-    cloudsPresetTbl["Preset2"] = "FEW080 SCT230"
-    cloudsPresetTbl["Preset3"] = "SCT080 FEW210"
-    cloudsPresetTbl["Preset4"] = "SCT080 FEW240"
-    cloudsPresetTbl["Preset5"] = "SCT080 FEW240"
-    cloudsPresetTbl["Preset6"] = "SCT080 FEW400"
-    cloudsPresetTbl["Preset7"] = "BKN075 SCT210 SCT400"
-    cloudsPresetTbl["Preset8"] = "SCT180 FEW360 FEW400"
-    cloudsPresetTbl["Preset9"] = "BKN075 SCT200 FEW410"
-    cloudsPresetTbl["Preset10"] = "SCT180 FEW360 FEW400"
-    cloudsPresetTbl["Preset11"] = "BKN180 BKN320 FEW410"
-    cloudsPresetTbl["Preset12"] = "BKN120 SCT220 FEW410"
-    cloudsPresetTbl["Preset13"] = "BKN120 BKN260 FEW410"
-    cloudsPresetTbl["Preset14"] = "BKN070 FEW410"
-    cloudsPresetTbl["Preset15"] = "BKN140 BKN240 FEW400"
-    cloudsPresetTbl["Preset16"] = "BKN140 BKN280 FEW400"
-    cloudsPresetTbl["Preset17"] = "BKN070 BKN200 BKN320"
-    cloudsPresetTbl["Preset18"] = "BKN130 BKN250 BKN380"
-    cloudsPresetTbl["Preset19"] = "OVC090 BKN230 BKN310"
-    cloudsPresetTbl["Preset20"] = "BKN130 BKN280 FEW380"
-    cloudsPresetTbl["Preset21"] = "BKN070 OVC170"
-    cloudsPresetTbl["Preset22"] = "BKN070 OVC170"
-    cloudsPresetTbl["Preset23"] = "BKN110 OVC180 SCT320"
-    cloudsPresetTbl["Preset24"] = "BKN030 OVC170 BKN340"
-    cloudsPresetTbl["Preset25"] = "OVC120 OVC220 OVC400"
-    cloudsPresetTbl["Preset26"] = "OVC090 BKN230 SCT320"
-    cloudsPresetTbl["Preset27"] = "OVC080 BKN250 BKN340"
-    cloudsPresetTbl["RainyPreset1"] = "RA OVC030 OVC280 FEW400"
-    cloudsPresetTbl["RainyPreset2"] = "RA OVC030 SCT180 FEW400"
-    cloudsPresetTbl["RainyPreset3"] = "RA OVC060 OVC190 SCT340"
+local function isRainyPreset(preset)
+    return preset:find("^RainyPreset") ~= nil or preset == "NEWRAINPRESET4"
+end
 
-    if cloudsPreset == nil or cloudsPresetTbl[cloudsPreset] == nil then
+function BuildMetar.getCloudCover(referencePoint)
+    local THIS_METHOD = THIS_FILE .. ".getCloudCover"
+    local clouds = env.mission.weather.clouds
+    local preset = clouds.preset
+
+    if preset == nil or preset == "" then
         return "CAVOK"
     end
 
-    return cloudsPresetTbl[cloudsPreset]
+    local decode = BuildMetar.DECODE_PRESET[preset]
+    if decode == nil then
+        DCSDynamicWeather.Logger.warning(THIS_METHOD, "Unknown cloud preset: " .. tostring(preset) .. " -- falling back to CAVOK")
+        return "CAVOK"
+    end
+
+    -- Mission clouds.base is meters MSL; METAR layers are AGL in hundreds of feet.
+    local stationElevM = land.getHeight({ x = referencePoint.x, y = referencePoint.z })
+    local baseAglFt = (clouds.base - stationElevM) * METERS_TO_FEET
+    local baseHundredsFt = math.floor(baseAglFt / 100 + 0.5)
+
+    -- Shift every layer by the delta between the mission base and the preset's
+    -- natural first-layer altitude, so the lowest layer matches what DCS renders.
+    local firstLayerHundredsFt = decode[1].alt
+    local delta = baseHundredsFt - firstLayerHundredsFt
+
+    local parts = {}
+    if isRainyPreset(preset) then
+        parts[#parts + 1] = "RA"
+    end
+
+    for _, layer in ipairs(decode) do
+        local alt = layer.alt + delta
+        if alt < 1 then alt = 1 end
+        if alt > 600 then alt = 600 end
+        parts[#parts + 1] = string.format("%s%03d", layer.code, alt)
+    end
+
+    return table.concat(parts, " ")
 end
 
 function BuildMetar.getPressureAltitude(referencePoint)
@@ -331,7 +346,7 @@ function BuildMetar.main()
     local weatherMods = BuildMetar.getWeatherMods()
     DCSDynamicWeather.Logger.info(THIS_FILE, "Weather Mods: " .. weatherMods)
 
-    local cloudCover = BuildMetar.getCloudCover()
+    local cloudCover = BuildMetar.getCloudCover(referencePoint)
     DCSDynamicWeather.Logger.info(THIS_FILE, "Cloud Cover: " .. cloudCover)
 
     local tempDew = BuildMetar.getTempDew(referencePoint)

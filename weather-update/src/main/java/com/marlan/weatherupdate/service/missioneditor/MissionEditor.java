@@ -2,7 +2,9 @@ package com.marlan.weatherupdate.service.missioneditor;
 
 import com.marlan.shared.utilities.Log;
 import com.marlan.weatherupdate.model.station.AVWXStation;
+import com.marlan.weatherupdate.service.missioneditor.values.Conditions;
 import com.marlan.weatherupdate.utilities.AltimeterUtility;
+import com.marlan.weatherupdate.utilities.CloudPresetSelector;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.Random;
@@ -36,15 +38,20 @@ public class MissionEditor {
         double windSpeed2000 = getModifiedWindSpeed(2000, modifiedWindSpeed); // "2000" Wind is 2000m/6600ft
         double windSpeed8000 = getModifiedWindSpeed(8000, modifiedWindSpeed); // "8000" Wind is 8000m/26000ft
 
-        double windDirectionGround = invertWindDirection(missionValues.getWind().getDirection()); // Wind Direction is backwards in DCS.
-        double windDirection2000 = randomizeWindDirection(missionValues.getWind().getDirection());
+        double windDirectionDcs = invertWindDirection(missionValues.getWind().getDirection()); // Wind Direction is backwards in DCS.
+        double windDirectionGround = windDirectionDcs;
+        double windDirection2000 = randomizeWindDirection(windDirectionDcs);
         double windDirection8000 = randomizeWindDirection(windDirection2000);
 
-        String cloudsPreset = buildCloudsPreset(selectCloudsPresetSuffix(missionValues.getStation().getMetar()));
+        CloudPresetSelector.Selection cloudsSelection = CloudPresetSelector.pick(
+                missionValues.getClouds().getLayers(),
+                stationAVWX.getElevationM(),
+                missionValues.getClouds().isHasPrecip());
 
-        mission = replaceCloudsPreset(mission, cloudsPreset);
-        //mission = replaceWind8000(mission, windSpeed8000, windDirection8000);
-        //mission = replaceWind2000(mission, windSpeed2000, windDirection2000);
+        mission = replaceCloudsBlock(mission, cloudsSelection);
+        mission = applyConditions(mission, missionValues.getConditions());
+        mission = replaceWind8000(mission, windSpeed8000, windDirection8000);
+        mission = replaceWind2000(mission, windSpeed2000, windDirection2000);
         //mission = replaceWindGround(mission, windSpeedGround, windDirectionGround);
         mission = replaceHour(mission, missionValues.getTime().getHour());
         mission = replaceDay(mission, missionValues.getTime().getDay());
@@ -204,41 +211,126 @@ public class MissionEditor {
         return mission;
     }
 
-    private String replaceCloudsWithoutPreset(String mission, String cloudsPreset) {
-        Pattern pattern = Pattern.compile("(\\[\"iprecptns\"].*)\n", Pattern.MULTILINE);
-        Matcher matcher = pattern.matcher(mission);
-        if (!matcher.find()) {
-            log.error("Regex match failed, Precipitation not set.");
-            return mission;
-        }
-        mission = matcher.replaceAll(
-                        "[\"iprecptns\"] = 0,\n            [\"preset\"] = \"\\$cloudsPreset\",\n")
-                .replace("$cloudsPreset", cloudsPreset);
-        log.info("Clouds preset set to: " + cloudsPreset);
+    private static final Pattern CLOUDS_BLOCK = Pattern.compile(
+            "\\[\"clouds\"]\\s*=\\s*\\{[^{}]*}", Pattern.MULTILINE);
+
+    private String applyConditions(String mission, Conditions c) {
+        if (!c.isApply()) return mission;
+        mission = replaceVisibilityDistance(mission, c.getDistanceMeters());
+        mission = replaceEnableFog(mission, c.isHasFog());
+        mission = replaceFogBlock(mission, c.getFogThicknessMeters(), c.getFogVisibilityMeters());
+        mission = replaceEnableDust(mission, c.isHasDust());
+        mission = replaceDustDensity(mission, c.getDustDensity());
         return mission;
     }
 
-    private String replaceCloudsWithPreset(String mission, String cloudsPreset) {
-        Pattern pattern = Pattern.compile(
-                "(\\[\"clouds\"]\\s*=\\s*\\{[^{}]*\\[\"preset\"]\\s*=\\s*\")([^,\"]*)(\")", Pattern.MULTILINE);
-        Matcher matcher = pattern.matcher(mission);
+    private static final Pattern VISIBILITY_DISTANCE = Pattern.compile(
+            "(\\[\"visibility\"]\\s*=\\s*\\{[^{}]*?\\[\"distance\"]\\s*=\\s*)[^,\\s]+",
+            Pattern.MULTILINE);
+
+    private String replaceVisibilityDistance(String mission, int meters) {
+        Matcher matcher = VISIBILITY_DISTANCE.matcher(mission);
         if (!matcher.find()) {
-            log.error("Regex match failed, Cloud Preset not set.");
+            log.error("Regex match failed, Visibility distance not set.");
             return mission;
         }
-        mission = matcher.replaceAll(String.format("$1%s$3", cloudsPreset));
-        log.info("Clouds preset set to: " + cloudsPreset);
+        mission = matcher.replaceFirst("$1" + meters);
+        log.info("Visibility distance set to: " + meters + " m");
         return mission;
     }
 
-    private String replaceCloudsPreset(String mission, String cloudsPreset) {
-        Pattern pattern = Pattern.compile(
-                "(\\[\"clouds\"]\\s*=\\s*\\{[^{}]*\\[\"preset\"]\\s*=\\s*\")([^,\"]*)(\")", Pattern.MULTILINE);
-        Matcher matcher = pattern.matcher(mission);
-        if (matcher.find()) {
-            return replaceCloudsWithPreset(mission, cloudsPreset);
+    private static final Pattern ENABLE_FOG = Pattern.compile(
+            "(\\[\"enable_fog\"]\\s*=\\s*)(?:true|false)", Pattern.MULTILINE);
+
+    private String replaceEnableFog(String mission, boolean enabled) {
+        Matcher matcher = ENABLE_FOG.matcher(mission);
+        if (!matcher.find()) {
+            log.error("Regex match failed, enable_fog not set.");
+            return mission;
         }
-        return replaceCloudsWithoutPreset(mission, cloudsPreset);
+        mission = matcher.replaceFirst("$1" + enabled);
+        log.info("enable_fog set to: " + enabled);
+        return mission;
+    }
+
+    private static final Pattern FOG_BLOCK = Pattern.compile(
+            "\\[\"fog\"]\\s*=\\s*\\{[^{}]*}", Pattern.MULTILINE);
+
+    private String replaceFogBlock(String mission, int thicknessMeters, int visibilityMeters) {
+        Matcher matcher = FOG_BLOCK.matcher(mission);
+        if (!matcher.find()) {
+            log.error("Regex match failed, Fog block not set.");
+            return mission;
+        }
+        String replacement = "[\"fog\"] = \n"
+                + "        {\n"
+                + "            [\"thickness\"] = " + thicknessMeters + ",\n"
+                + "            [\"visibility\"] = " + visibilityMeters + ",\n"
+                + "        }";
+        mission = matcher.replaceFirst(Matcher.quoteReplacement(replacement));
+        log.info("Fog set to: thickness=" + thicknessMeters + "m visibility=" + visibilityMeters + "m");
+        return mission;
+    }
+
+    private static final Pattern ENABLE_DUST = Pattern.compile(
+            "(\\[\"enable_dust\"]\\s*=\\s*)(?:true|false)", Pattern.MULTILINE);
+
+    private String replaceEnableDust(String mission, boolean enabled) {
+        Matcher matcher = ENABLE_DUST.matcher(mission);
+        if (!matcher.find()) {
+            log.error("Regex match failed, enable_dust not set.");
+            return mission;
+        }
+        mission = matcher.replaceFirst("$1" + enabled);
+        log.info("enable_dust set to: " + enabled);
+        return mission;
+    }
+
+    // replaceFogBlock has already rewritten the fog block without dust_density,
+    // so the only dust_density left is the top-level one.
+    private static final Pattern TOP_LEVEL_DUST_DENSITY = Pattern.compile(
+            "(\\[\"dust_density\"]\\s*=\\s*)[^,\\s]+", Pattern.MULTILINE);
+
+    private String replaceDustDensity(String mission, int density) {
+        Matcher matcher = TOP_LEVEL_DUST_DENSITY.matcher(mission);
+        if (!matcher.find()) {
+            log.error("Regex match failed, dust_density not set.");
+            return mission;
+        }
+        mission = matcher.replaceFirst("$1" + density);
+        log.info("dust_density set to: " + density);
+        return mission;
+    }
+
+    private String replaceCloudsBlock(String mission, CloudPresetSelector.Selection sel) {
+        Matcher matcher = CLOUDS_BLOCK.matcher(mission);
+        if (!matcher.find()) {
+            log.error("Regex match failed, Clouds block not set.");
+            return mission;
+        }
+
+        String presetLine = sel.presetName().isEmpty()
+                ? "            [\"preset\"] = nil,\n"
+                : "            [\"preset\"] = \"" + sel.presetName() + "\",\n";
+
+        String replacement = "[\"clouds\"] = \n"
+                + "        {\n"
+                + "            [\"density\"] = 0,\n"
+                + "            [\"thickness\"] = 200,\n"
+                + presetLine
+                + "            [\"base\"] = " + sel.baseMeters() + ",\n"
+                + "            [\"iprecptns\"] = 0,\n"
+                + "        }";
+
+        mission = matcher.replaceFirst(Matcher.quoteReplacement(replacement));
+
+        if (sel.presetName().isEmpty()) {
+            log.info("Clouds set to clear (no preset).");
+        } else {
+            log.info("Clouds preset: " + sel.presetName() + " base=" + sel.baseMeters() + "m ("
+                    + Math.round(sel.baseMeters() / CloudPresetSelector.FEET_TO_METERS) + " ft)");
+        }
+        return mission;
     }
 
     private double getCorrectedGroundWindSpeed(double windSpeedKnots, double stationAltitude) {
@@ -270,29 +362,6 @@ public class MissionEditor {
             randomizedWindDirection -= 360;
         }
         return randomizedWindDirection;
-    }
-
-    @NotNull
-    private String buildCloudsPreset(int cloudsPresetSuffix) {
-        if (cloudsPresetSuffix == 0) {
-            return "nil";
-        } else {
-            if (cloudsPresetSuffix > 27) {
-                return "RainyPreset" + cloudsPresetSuffix % 27; // Converts Presets28-30 to RainyPreset1-3
-            } else {
-                return "Preset" + cloudsPresetSuffix;
-            }
-        }
-    }
-
-    private int selectCloudsPresetSuffix(@NotNull String metar) {
-        if (metar.contains("SKC") || metar.contains("NCD")) return 0;
-        if (metar.contains("CLR") || metar.contains("NSC") || metar.contains("CAVOK")) return random.nextInt(3);
-        if (metar.contains("OVC")) return random.nextInt(10) + 21;
-        if (metar.contains("BKN")) return random.nextInt(8) + 13;
-        if (metar.contains("SCT")) return random.nextInt(10) + 3;
-        if (metar.contains("FEW")) return random.nextInt(5) + 1;
-        return 0;
     }
 
     private double invertWindDirection(double windDirection) {

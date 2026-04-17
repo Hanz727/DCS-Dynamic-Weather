@@ -3,6 +3,8 @@ package com.marlan.weatherupdate.model.metar;
 import com.marlan.weatherupdate.model.metar.fields.*;
 import lombok.Data;
 
+import java.util.Collections;
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -20,6 +22,11 @@ public class AVWXMetar {
     private Visibility visibility;
     private Meta meta;
     private Units units;
+    private List<CloudLayer> clouds;
+
+    public List<CloudLayer> getClouds() {
+        return clouds != null ? clouds : Collections.emptyList();
+    }
 
     public Optional<Temperature> getTemperature() {
         return Optional.ofNullable(this.temperature);

@@ -9,6 +9,8 @@ import com.marlan.weatherupdate.model.metar.fields.WindDirection;
 import com.marlan.weatherupdate.model.metar.fields.WindSpeed;
 import com.marlan.weatherupdate.model.station.AVWXStation;
 import com.marlan.weatherupdate.service.airplanclient.AirplanClient;
+import com.marlan.weatherupdate.service.missioneditor.values.Clouds;
+import com.marlan.weatherupdate.service.missioneditor.values.Conditions;
 import com.marlan.weatherupdate.service.missioneditor.values.Station;
 import com.marlan.weatherupdate.service.missioneditor.values.Time;
 import com.marlan.weatherupdate.service.missioneditor.values.Wind;
@@ -40,6 +42,10 @@ public class MissionValues {
     private final Station station;
     @Getter
     private final Time time;
+    @Getter
+    private final Clouds clouds;
+    @Getter
+    private final Conditions conditions;
 
     public MissionValues(Config config, DTO dto, AVWXStation stationAVWX, AVWXMetar metarAVWX, AirplanClient airplanClient) {
         this.config = config;
@@ -48,8 +54,94 @@ public class MissionValues {
         this.airplanClient = airplanClient;
         this.wind = setWind();
         this.station = setStation();
+        this.clouds = setClouds();
+        this.conditions = setConditions();
         ZonedDateTime zonedDateTime = ZonedDateTime.now(ZoneId.of(StationInfoUtility.getZoneId(stationAVWX.getLatitude(), stationAVWX.getLongitude())));
         this.time = setTime(zonedDateTime);
+    }
+
+    private Clouds setClouds() {
+        String dtoWeatherType = dto.getWeatherType();
+        if (dtoWeatherType.contains("clear")) {
+            return new Clouds(java.util.List.of(), false, true);
+        }
+        if (dtoWeatherType.contains("real") || dtoWeatherType.equals("cvops")) {
+            return new Clouds(metarAVWX.getClouds(), hasPrecip(metarAVWX.getSanitized()), false);
+        }
+        return new Clouds(java.util.List.of(), false, false);
+    }
+
+    private static final Pattern PRECIP_CODE = Pattern.compile(
+            "(^|\\s)[-+]?(?:RA|SN|DZ|SG|GS|GR|PL|IC|UP|TS)\\b");
+    private static final Pattern FOG_CODE = Pattern.compile("(^|\\s)(?:FG|BR)\\b");
+    private static final Pattern DUST_CODE = Pattern.compile("(^|\\s)(?:HZ|DU|SA|PO|DS|SS)\\b");
+
+    private boolean hasPrecip(String sanitizedMetar) {
+        if (sanitizedMetar == null) return false;
+        return PRECIP_CODE.matcher(sanitizedMetar).find();
+    }
+
+    private boolean hasFog(String sanitizedMetar) {
+        if (sanitizedMetar == null) return false;
+        return FOG_CODE.matcher(sanitizedMetar).find();
+    }
+
+    private boolean hasDust(String sanitizedMetar) {
+        if (sanitizedMetar == null) return false;
+        return DUST_CODE.matcher(sanitizedMetar).find();
+    }
+
+    private static final int CAVOK_VISIBILITY_METERS = 80000;
+    private static final int MIN_VISIBILITY_METERS = 100;
+    private static final double STATUTE_MILES_TO_METERS = 1609.344;
+    private static final double FEET_TO_METERS = 0.3048;
+
+    private Conditions setConditions() {
+        String dtoWeatherType = dto.getWeatherType();
+        if (dtoWeatherType.contains("clear")) {
+            return new Conditions(true, CAVOK_VISIBILITY_METERS, 0, 0, 0, false, false);
+        }
+        if (dtoWeatherType.contains("real") || dtoWeatherType.equals("cvops")) {
+            String sanitized = metarAVWX.getSanitized();
+            int visMeters = parseVisibilityMeters();
+            boolean fog = hasFog(sanitized);
+            boolean dust = hasDust(sanitized);
+
+            int fogThickness = 0;
+            int fogVisibility = 0;
+            if (fog) {
+                fogThickness = 150;
+                fogVisibility = Math.max(MIN_VISIBILITY_METERS, Math.min(visMeters, 3000));
+            }
+
+            int dustDensity = dust ? 3000 : 0;
+
+            return new Conditions(true, visMeters, fogThickness, fogVisibility,
+                    dustDensity, fog, dust);
+        }
+        return Conditions.skip();
+    }
+
+    private int parseVisibilityMeters() {
+        if (metarAVWX.getVisibility() == null || metarAVWX.getVisibility().getValue() == null) {
+            return CAVOK_VISIBILITY_METERS;
+        }
+        double raw = metarAVWX.getVisibility().getValue();
+        String unit = metarAVWX.getUnits() != null ? metarAVWX.getUnits().getVisibility() : null;
+        double meters;
+        if (unit == null || "m".equalsIgnoreCase(unit)) {
+            meters = raw;
+        } else if ("sm".equalsIgnoreCase(unit)) {
+            meters = raw * STATUTE_MILES_TO_METERS;
+        } else if ("ft".equalsIgnoreCase(unit)) {
+            meters = raw * FEET_TO_METERS;
+        } else if ("km".equalsIgnoreCase(unit)) {
+            meters = raw * 1000.0;
+        } else {
+            meters = raw;
+        }
+        int rounded = (int) Math.round(meters);
+        return Math.max(MIN_VISIBILITY_METERS, Math.min(rounded, CAVOK_VISIBILITY_METERS));
     }
 
     private Time setTime(ZonedDateTime zonedDateTime) {
