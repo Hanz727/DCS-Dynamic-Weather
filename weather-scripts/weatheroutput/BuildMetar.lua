@@ -117,17 +117,16 @@ end
 
 function BuildMetar.getVisibility()
     local weather = env.mission.weather
-    local visibility = env.mission.weather.visibility.distance
+    local visibilityM = weather.visibility.distance
 
     if weather.enable_fog == true then
-        local fog = weather.fog
-        local fogVisibilityFt = fog.visibility * METERS_TO_FEET
-        if fogVisibilityFt < visibility then
-            visibility = fogVisibilityFt
+        local fogVisibilityM = weather.fog.visibility
+        if fogVisibilityM < visibilityM then
+            visibilityM = fogVisibilityM
         end
     end
 
-    local visibilitySM = visibility * FEET_TO_STATUTORY_MILES
+    local visibilitySM = visibilityM * METERS_TO_FEET * FEET_TO_STATUTORY_MILES
     if visibilitySM < 0.25 then
         return "1/4SM"
     elseif visibilitySM < 0.50 then

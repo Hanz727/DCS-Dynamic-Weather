@@ -124,10 +124,22 @@ public class MissionValues {
 
     private int parseVisibilityMeters() {
         if (metarAVWX.getVisibility() == null || metarAVWX.getVisibility().getValue() == null) {
+            log.info("Visibility: null value → CAVOK (" + CAVOK_VISIBILITY_METERS + "m)");
             return CAVOK_VISIBILITY_METERS;
         }
         double raw = metarAVWX.getVisibility().getValue();
         String unit = metarAVWX.getUnits() != null ? metarAVWX.getUnits().getVisibility() : null;
+        String repr = metarAVWX.getVisibility().getRepr();
+
+        // AVWX reports CAVOK / 9999 (international unlimited) as value=9999 unit=m.
+        // Treat as unlimited rather than writing 9999m literally (which DCS renders as heavy haze).
+        boolean isCavokSentinel = "CAVOK".equalsIgnoreCase(repr)
+                || (("m".equalsIgnoreCase(unit) || unit == null) && raw >= 9999);
+        if (isCavokSentinel) {
+            log.info("Visibility: " + repr + " (" + raw + " " + unit + ") → CAVOK unlimited (" + CAVOK_VISIBILITY_METERS + "m)");
+            return CAVOK_VISIBILITY_METERS;
+        }
+
         double meters;
         if (unit == null || "m".equalsIgnoreCase(unit)) {
             meters = raw;
@@ -141,7 +153,9 @@ public class MissionValues {
             meters = raw;
         }
         int rounded = (int) Math.round(meters);
-        return Math.max(MIN_VISIBILITY_METERS, Math.min(rounded, CAVOK_VISIBILITY_METERS));
+        int clamped = Math.max(MIN_VISIBILITY_METERS, Math.min(rounded, CAVOK_VISIBILITY_METERS));
+        log.info("Visibility: " + repr + " (" + raw + " " + unit + ") → " + clamped + "m");
+        return clamped;
     }
 
     private Time setTime(ZonedDateTime zonedDateTime) {

@@ -8,4 +8,5 @@ import lombok.Data;
 @Data
 public class Visibility {
     private Double value;
+    private String repr;
 }
