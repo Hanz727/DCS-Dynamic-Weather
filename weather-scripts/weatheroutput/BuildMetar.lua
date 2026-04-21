@@ -40,24 +40,44 @@ function BuildMetar.getNearestAirbasePoint()
     return stationReference.point
 end
 
+local function formatWindGroup(windDirection, windSpeed)
+    -- METAR calm convention: speed <= 2 kt reports as 00000KT.
+    if windSpeed <= 2 then
+        return "00000KT"
+    end
+    return string.format("%03d%02dKT", windDirection % 360, windSpeed)
+end
+
 function BuildMetar.getWind(referencePoint)
     local THIS_METHOD = THIS_FILE .. ".getWind"
 
+    -- Prefer the AVWX surface wind forwarded through dto.json by weather-update.
+    -- Ground wind is not written into the mission (atGround stays at 0), so sampling
+    -- atmosphere.getWind() near the surface produces 00000KT almost always and does
+    -- not reflect the real-world METAR. The DTO values are authoritative when present.
+    local dtoSpeed = DCSDynamicWeather.JSON.getValue("wind_speed_kt", DCSDynamicWeather.DTO_PATH)
+    local dtoDir = DCSDynamicWeather.JSON.getValue("wind_direction_deg", DCSDynamicWeather.DTO_PATH)
+    if dtoSpeed and dtoSpeed ~= "" and dtoDir and dtoDir ~= "" then
+        local windSpeed = tonumber(dtoSpeed)
+        local windDirection = tonumber(dtoDir)
+        if windSpeed and windDirection then
+            DCSDynamicWeather.Logger.info(THIS_METHOD, "Using DTO wind: " .. windDirection .. "/" .. windSpeed .. "KT")
+            return formatWindGroup(windDirection, windSpeed)
+        end
+    end
+
+    -- Fallback: sample the DCS atmosphere (used for clear weather type or when DTO is empty).
     local localReferencePoint = {}
     localReferencePoint.x = referencePoint.x
-    localReferencePoint.y = land.getHeight({ x = localReferencePoint.x, y = referencePoint.z }) + 15 -- Wind will return 0 within 10m of ground
+    localReferencePoint.y = land.getHeight({ x = localReferencePoint.x, y = referencePoint.z }) + 15 -- Wind returns 0 within 10m of ground
     localReferencePoint.z = referencePoint.z
     DCSDynamicWeather.Logger.info(THIS_METHOD, "Wind Reference point: { x = " .. localReferencePoint.x .. ", y = " .. localReferencePoint.y .. ", z = " .. localReferencePoint.z .. " }")
 
     local windVec = atmosphere.getWind(localReferencePoint)
-    local windSpeed = math.sqrt((windVec.z) ^ 2 + (windVec.x) ^ 2)
-    windSpeed = windSpeed * METERS_TO_KNOTS -- Meters to Knots
+    local windSpeed = math.sqrt((windVec.z) ^ 2 + (windVec.x) ^ 2) * METERS_TO_KNOTS
 
-
+    -- atmosphere.getWind() returns the "to" vector; flip 180° to get METAR "from" direction.
     local windDirection = math.deg(math.atan2(windVec.z, windVec.x))
-
-
-    -- Clamp wind direction between 0 and 360
     if windDirection < 0 then
         windDirection = windDirection + 360
     end
@@ -69,29 +89,9 @@ function BuildMetar.getWind(referencePoint)
 
     windSpeed = math.floor(windSpeed + 0.5)
     windDirection = math.floor(windDirection + 0.5)
-    DCSDynamicWeather.Logger.info(THIS_METHOD, "Wind Speed: " .. windSpeed)
-    DCSDynamicWeather.Logger.info(THIS_METHOD, "Wind Direction: " .. windDirection)
+    DCSDynamicWeather.Logger.info(THIS_METHOD, "Sampled wind: " .. windDirection .. "/" .. windSpeed .. "KT")
 
-    -- Add leading zeroes
-    local windDirectionLeadingZeroes
-    if windSpeed == 0 then
-        windDirectionLeadingZeroes = "000"
-    elseif windDirection < 10 then
-        windDirectionLeadingZeroes = "00" .. windDirection
-    elseif windDirection < 100 then
-        windDirectionLeadingZeroes = "0" .. windDirection
-    else
-        windDirectionLeadingZeroes = windDirection
-    end
-
-    local windSpeedLeadingZeroes
-    if windSpeed < 10 then
-        windSpeedLeadingZeroes = "0" .. windSpeed
-    else
-        windSpeedLeadingZeroes = windSpeed
-    end
-
-    return windDirectionLeadingZeroes .. windSpeedLeadingZeroes .. "KT"
+    return formatWindGroup(windDirection, windSpeed)
 end
 
 function BuildMetar.getDayAndTimeZulu()

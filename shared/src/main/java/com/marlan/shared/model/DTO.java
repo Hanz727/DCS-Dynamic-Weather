@@ -14,4 +14,6 @@ public class DTO {
     private String stationLatitude;
     private String weatherType;
     private String currentGameTime;
+    private String windSpeedKt;
+    private String windDirectionDeg;
 }

@@ -47,6 +47,20 @@ public class WeatherUpdateController {
         AVWXStation stationAVWX = gson.fromJson(avwxClient.getStation(metarAVWX).body(), AVWXStation.class);
 
         dto.setIcao(stationAVWX.getIcao());
+
+        String weatherType = dto.getWeatherType();
+        if (weatherType != null && (weatherType.contains("real") || weatherType.equals("cvops"))) {
+            int windSpeedKt = (int) Math.round(metarAVWX.getWindSpeed()
+                    .flatMap(com.marlan.weatherupdate.model.metar.fields.WindSpeed::getValue).orElse(0.0));
+            int windDirectionDeg = (int) Math.round(metarAVWX.getWindDirection()
+                    .flatMap(com.marlan.weatherupdate.model.metar.fields.WindDirection::getValue).orElse(0.0));
+            dto.setWindSpeedKt(Integer.toString(windSpeedKt));
+            dto.setWindDirectionDeg(Integer.toString(windDirectionDeg));
+        } else {
+            dto.setWindSpeedKt("");
+            dto.setWindDirectionDeg("");
+        }
+
         FileHandler.writeJSON(WORKING_DIR, DTO_PATH, dto);
 
         MizUtility mizUtility = new MizUtility(config);
