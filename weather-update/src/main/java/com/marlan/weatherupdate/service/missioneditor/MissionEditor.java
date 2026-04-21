@@ -339,16 +339,20 @@ public class MissionEditor {
     }
 
     private double getModifiedWindSpeed(double altitudeMeters, double windSpeedKnots) {
+        // DCS interpolates linearly between atGround and at2000, and ground wind is not
+        // being written (kept at mission default), so at2000 values become the dominant
+        // wind felt at field elevation and through the low climb. Keep aloft values in a
+        // realistic envelope so Nellis (~570m) and 3000' don't inherit gale-force winds.
         double windSpeedMultiplier;
         double windSpeedAddition;
         if (altitudeMeters == 2000) {
-            windSpeedAddition = Math.min(random.nextGaussian(10, 10), 30);
-            windSpeedMultiplier = Math.min(random.nextGaussian(0.5, 0.5) + 1, 2.5);
-            return Math.abs((windSpeedKnots * windSpeedMultiplier) + windSpeedAddition) * KNOTS_TO_METERS;
+            windSpeedAddition = Math.min(random.nextGaussian(5, 5), 15);
+            windSpeedMultiplier = Math.min(random.nextGaussian(0.2, 0.2) + 1, 1.6);
+            return Math.max(0, (windSpeedKnots * windSpeedMultiplier) + windSpeedAddition) * KNOTS_TO_METERS;
         } else if (altitudeMeters == 8000) {
-            windSpeedAddition = Math.min(random.nextGaussian(40, 20), 60);
-            windSpeedMultiplier = Math.min(random.nextGaussian(1, 1) + 1, 3);
-            return Math.abs((windSpeedKnots * windSpeedMultiplier) + windSpeedAddition) * KNOTS_TO_METERS;
+            windSpeedAddition = Math.min(random.nextGaussian(10, 10), 30);
+            windSpeedMultiplier = Math.min(random.nextGaussian(0.5, 0.5) + 1, 2.0);
+            return Math.max(0, (windSpeedKnots * windSpeedMultiplier) + windSpeedAddition) * KNOTS_TO_METERS;
         } else {
             return 0.0;
         }
