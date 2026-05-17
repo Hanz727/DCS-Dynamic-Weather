@@ -14,10 +14,13 @@ function DCSDynamicWeather.JAR.execute(jarName)
     end
 
     DCSDynamicWeather.Logger.info(THIS_METHOD, "Executing JAR: " .. jar)
-    if os.execute("java -jar \"" .. jarPath .. "\" \"" .. DCSDynamicWeather.SCRIPTS_PATH .. "\"") == 0 then
+    local stderrLog = DCSDynamicWeather.SCRIPTS_PATH .. "\\logs\\jar-stderr.log"
+    local cmd = "java -jar \"" .. jarPath .. "\" \"" .. DCSDynamicWeather.SCRIPTS_PATH
+            .. "\" >> \"" .. stderrLog .. "\" 2>&1"
+    if os.execute(cmd) == 0 then
         DCSDynamicWeather.Logger.info(THIS_METHOD, "Execution successful.")
     else
-        DCSDynamicWeather.Logger.error(THIS_METHOD, "Execution failed.")
+        DCSDynamicWeather.Logger.error(THIS_METHOD, "Execution failed. See " .. stderrLog .. " for JVM output.")
     end
 end
 
