@@ -67,6 +67,11 @@ public class WeatherUpdateController {
         mizUtility.extractMission(WORKING_DIR, dto.getMission());
         String missionContent = FileHandler.readFile(WORKING_DIR, MISSION_FILE);
 
+        if (missionContent.isEmpty()) {
+            log.error("Mission extraction failed or produced empty file; aborting to preserve " + dto.getMission());
+            return;
+        }
+
         MissionValues missionValues = new MissionValues(config, dto, stationAVWX, metarAVWX, new AirplanClient());
         MissionEditor missionEditor = new MissionEditor(stationAVWX, missionValues);
 

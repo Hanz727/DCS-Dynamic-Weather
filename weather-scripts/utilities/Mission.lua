@@ -62,6 +62,8 @@ function getNextMissionName()
 end
 
 function copyFileWithNewIdentifier(newIdentifier)
+    local THIS_METHOD = THIS_FILE .. ".copyFileWithNewIdentifier"
+    local MIN_VALID_MIZ_BYTES = 10000
     local originalMissionName = DCSDynamicWeather.MISSION_NAME
     local newMissionName
     local missionNameLast2Chars = string.sub(originalMissionName, #originalMissionName - 1)
@@ -74,6 +76,19 @@ function copyFileWithNewIdentifier(newIdentifier)
 
     local originalFilePath = DCSDynamicWeather.SCRIPTS_PATH .. "\\" .. originalMissionName .. ".miz"
     local newFilePath = DCSDynamicWeather.SCRIPTS_PATH .. "\\" .. newMissionName .. "_" .. newIdentifier .. ".miz"
+
+    if not DCSDynamicWeather.File.exists(originalFilePath) then
+        DCSDynamicWeather.Logger.error(THIS_METHOD, "Refusing to copy: source missing " .. originalFilePath)
+        return
+    end
+    local originalSize = DCSDynamicWeather.File.size(originalFilePath)
+    if originalSize < MIN_VALID_MIZ_BYTES then
+        DCSDynamicWeather.Logger.error(THIS_METHOD,
+            "Refusing to copy: source " .. originalFilePath .. " is suspiciously small (" .. originalSize .. " bytes). "
+            .. "This likely means a previous weather-update corrupted it. Restore from a known-good .miz before continuing.")
+        return
+    end
+
     os.execute("copy \"" .. originalFilePath .. "\" \"" .. newFilePath .. "\"")
 end
 
