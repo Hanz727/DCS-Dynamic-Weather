@@ -13,7 +13,9 @@ function DCSDynamicWeather.File.size(file)
     if not f then
         return 0
     end
-    local size = f:seek("end")
+    -- DCS mission scripting sandbox strips io handle methods like :seek,
+    -- so read the whole file and measure. .miz files are small enough.
+    local data = f:read("*a")
     io.close(f)
-    return size or 0
+    return data and #data or 0
 end
