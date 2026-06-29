@@ -1,4 +1,4 @@
-local DCS_DYNAMIC_WEATHER_HOOK_VERSION = "1.2.1"
+local DCS_DYNAMIC_WEATHER_HOOK_VERSION = "1.2.2"
 DCSDynamicWeather = {}
 local DCSDynamicWeatherCallbacks = {}
 DCSDynamicWeather.Logger = {}
@@ -108,7 +108,13 @@ end
 
 -- Returns the mission time-of-day as HH:MM:SS (mission start time + elapsed model time)
 local function getMissionTimeOfDay()
-    local startOfDay = DCS.getMissionStartTime() or 0 -- seconds since midnight at mission start
+    -- DCS.getMissionStartTime() does not exist in the GameGUI hooks env; read the
+    -- start-of-day from the loaded mission table instead.
+    local startOfDay = 0 -- seconds since midnight at mission start
+    local ok, mission = pcall(DCS.getCurrentMission)
+    if ok and mission and mission.mission and mission.mission.start_time then
+        startOfDay = mission.mission.start_time
+    end
     local elapsed = DCS.getModelTime() or 0           -- seconds of mission elapsed
     local secondsOfDay = math.floor(startOfDay + elapsed) % 86400
     local h = math.floor(secondsOfDay / 3600)
@@ -396,6 +402,8 @@ pollUDP = function()
         local success, err = pcall(handleUDPMessage, data, ip, port)
         if not success then
             DCSDynamicWeather.Logger.error(THIS_METHOD, "Error handling message: " .. tostring(err))
+            -- Always reply so the client doesn't sit through a 2s timeout
+            pcall(function() udpSocket:sendto("error:internal\n", ip, port) end)
         end
     end
 end
