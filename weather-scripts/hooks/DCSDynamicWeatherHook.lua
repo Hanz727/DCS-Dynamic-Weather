@@ -1,4 +1,4 @@
-local DCS_DYNAMIC_WEATHER_HOOK_VERSION = "1.2.2"
+local DCS_DYNAMIC_WEATHER_HOOK_VERSION = "1.2.3"
 DCSDynamicWeather = {}
 local DCSDynamicWeatherCallbacks = {}
 DCSDynamicWeather.Logger = {}
@@ -158,6 +158,7 @@ local function handleUDPMessage(data, ip, port)
     DCSDynamicWeather.Logger.info(THIS_METHOD, "Parsed cmd='" .. cmd .. "' arg='" .. arg .. "'")
 
     local response = ""
+    local deferredRestart = nil -- weather arg to apply AFTER we reply
 
     if cmd == "players" then
         response = tostring(getPlayerCount())
@@ -171,8 +172,8 @@ local function handleUDPMessage(data, ip, port)
         elseif not isValidWeatherType(arg) then
             response = "error:invalid weather type"
         else
-            DCSDynamicWeather.restartWithWeather(arg)
             response = "ok"
+            deferredRestart = arg -- don't restart yet — reply first so the ACK is on the wire before the reload stalls the frame
         end
 
     elseif cmd == "status" then
@@ -198,9 +199,17 @@ local function handleUDPMessage(data, ip, port)
     end
 
     DCSDynamicWeather.Logger.info(THIS_METHOD, "Sending response: '" .. response .. "' to " .. ip .. ":" .. port)
+    -- Reply BEFORE any sim-stalling side effect, so the ACK is guaranteed on the
+    -- wire even if the mission reload immediately freezes the frame. On loopback,
+    -- once sendto returns the packet is in the kernel buffer and will be delivered.
     local ok, err = udpSocket:sendto(response .. "\n", ip, port)
     if not ok then
         DCSDynamicWeather.Logger.error(THIS_METHOD, "sendto failed: " .. tostring(err))
+    end
+
+    -- Now perform the deferred restart (this is what stalls the sim).
+    if deferredRestart then
+        DCSDynamicWeather.restartWithWeather(deferredRestart)
     end
 end
 
