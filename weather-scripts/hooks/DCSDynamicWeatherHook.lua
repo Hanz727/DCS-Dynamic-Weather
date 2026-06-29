@@ -85,6 +85,38 @@ local function getPlayerCount()
     return result
 end
 
+local function getPlayerNames()
+    local THIS_METHOD = "getPlayerNames"
+    local players = net.get_player_list()
+    if not players then
+        DCSDynamicWeather.Logger.warning(THIS_METHOD, "net.get_player_list() returned nil")
+        return {}
+    end
+    local names = {}
+    for _, id in pairs(players) do
+        -- Skip the server slot (id 1 is the host/server)
+        if id ~= 1 then
+            local name = net.get_player_info(id, "name")
+            if name and name ~= "" then
+                names[#names + 1] = name
+            end
+        end
+    end
+    DCSDynamicWeather.Logger.info(THIS_METHOD, "Player names: " .. table.concat(names, ", "))
+    return names
+end
+
+-- Returns the mission time-of-day as HH:MM:SS (mission start time + elapsed model time)
+local function getMissionTimeOfDay()
+    local startOfDay = DCS.getMissionStartTime() or 0 -- seconds since midnight at mission start
+    local elapsed = DCS.getModelTime() or 0           -- seconds of mission elapsed
+    local secondsOfDay = math.floor(startOfDay + elapsed) % 86400
+    local h = math.floor(secondsOfDay / 3600)
+    local m = math.floor((secondsOfDay % 3600) / 60)
+    local s = secondsOfDay % 60
+    return string.format("%02d:%02d:%02d", h, m, s)
+end
+
 local function isValidWeatherType(weatherType)
     local THIS_METHOD = "isValidWeatherType"
     -- Valid formats: real, clear, realHHMM, clearHHMM, cvops, cvopsclear
@@ -144,6 +176,15 @@ local function handleUDPMessage(data, ip, port)
         local loaded = missionLoaded and "true" or "false"
         response = string.format("%s|%d|%d|%s", mission, uptime, players, loaded)
         DCSDynamicWeather.Logger.info(THIS_METHOD, "Status response: " .. response)
+
+    elseif cmd == "info" then
+        local mission = DCS.getMissionName() or "none"
+        local uptime = math.floor(DCS.getRealTime() - simulationStartTime)
+        local missionTime = getMissionTimeOfDay()
+        local names = getPlayerNames()
+        local playerList = table.concat(names, ",")
+        response = string.format("%s|%d|%s|%s", mission, uptime, missionTime, playerList)
+        DCSDynamicWeather.Logger.info(THIS_METHOD, "Info response: " .. response)
 
     else
         DCSDynamicWeather.Logger.warning(THIS_METHOD, "Unknown command: '" .. cmd .. "'")
