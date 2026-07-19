@@ -16,13 +16,13 @@ public class AirplanClient {
     public void postMetar(String metar) {
         try {
             String json = "{\"metar\":\"" + metar.replace("\"", "\\\"") + "\"}";
-            HttpRequest postRequest = HttpRequest.newBuilder()
-                    .uri(new URI("http://localhost:5000/api/airplan/metar"))
+            HttpRequest putRequest = HttpRequest.newBuilder()
+                    .uri(new URI("http://localhost:8000/api/v1/weather/metar"))
                     .header("Content-Type", "application/json")
-                    .POST(HttpRequest.BodyPublishers.ofString(json))
+                    .PUT(HttpRequest.BodyPublishers.ofString(json))
                     .build();
-            HttpResponse<String> response = httpClient.send(postRequest, HttpResponse.BodyHandlers.ofString());
-            log.info("Airplan METAR API Response: " + response);
+            HttpResponse<String> response = httpClient.send(putRequest, HttpResponse.BodyHandlers.ofString());
+            log.info("Weather METAR API Response: " + response);
         } catch (URISyntaxException use) {
             log.error(use.getMessage());
         } catch (IOException | InterruptedException e) {

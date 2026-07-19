@@ -24,7 +24,7 @@ public class AirplanClient {
     public String getNextEvtTime() {
         try {
             HttpRequest getRequest = HttpRequest.newBuilder()
-                    .uri(new URI("http://127.0.0.1:5000/api/airplan/next-event-time"))
+                    .uri(new URI("http://127.0.0.1:8000/api/v1/airplan/next-event-time"))
                     .build();
             HttpResponse<String> response = sendRequest(getRequest);
 
@@ -33,12 +33,12 @@ public class AirplanClient {
                 return null;
             }
 
-            JsonObject json = JsonParser.parseString(response.body()).getAsJsonObject();
-
-            if (!json.has("success") || !json.get("success").getAsBoolean()) {
-                log.error("Airplan API returned success=false");
+            if (response.statusCode() < 200 || response.statusCode() >= 300) {
+                log.error("Airplan API returned status " + response.statusCode());
                 return null;
             }
+
+            JsonObject json = JsonParser.parseString(response.body()).getAsJsonObject();
 
             JsonElement takeoffTime = json.get("takeoff_time");
             if (takeoffTime == null || takeoffTime.isJsonNull()) {
