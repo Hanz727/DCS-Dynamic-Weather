@@ -11,7 +11,12 @@ import java.net.http.HttpResponse;
 
 public class AirplanClient {
     private static final Log log = Log.getInstance();
-    private final HttpClient httpClient = HttpClient.newHttpClient();
+    // Pin to HTTP/1.1: the default HTTP/2 client sends h2c upgrade headers that
+    // uvicorn rejects ("Invalid HTTP request received"), which drops the
+    // Content-Type and makes the API 422 the body. Old Flask tolerated it.
+    private final HttpClient httpClient = HttpClient.newBuilder()
+            .version(HttpClient.Version.HTTP_1_1)
+            .build();
 
     public void postMetar(String metar) {
         try {
