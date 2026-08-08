@@ -40,7 +40,7 @@ Optionally outputs METAR to Discord Webhook or Google Sheets Cell for KBC's (Kne
     ```
 
 #### Miz Set-up
-5) Create a zone in your DCS Mission using the DCS Mission Editor and name it `StationReference` (this name can be changed in `config.json`).
+5) Create a zone in your DCS Mission using the DCS Mission Editor and name it `WeatherStation` (this name can be changed in `config.json`).
     - Place the zone at the location of your station.
     - This will be the reference station where weather will be polled. For example, if you place it at Nellis, the application will retrieve the weather from Nellis Station.
 6) Create the following triggers in your DCS Mission. (See [Example Mission](https://github.com/dMARLAN/DCS-Dynamic-Weather))
