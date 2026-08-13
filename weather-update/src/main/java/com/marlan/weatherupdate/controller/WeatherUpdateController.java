@@ -9,6 +9,7 @@ import com.marlan.weatherupdate.model.metar.AVWXMetar;
 import com.marlan.weatherupdate.model.station.AVWXStation;
 import com.marlan.weatherupdate.service.airplanclient.AirplanClient;
 import com.marlan.weatherupdate.service.avwxclient.AVWXClient;
+import com.marlan.weatherupdate.service.destruction.DestructionService;
 import com.marlan.weatherupdate.service.missioneditor.MissionEditor;
 import com.marlan.weatherupdate.service.missioneditor.MissionValues;
 import com.marlan.weatherupdate.utilities.MizUtility;
@@ -76,6 +77,13 @@ public class WeatherUpdateController {
         MissionEditor missionEditor = new MissionEditor(stationAVWX, missionValues);
 
         String replacedMissionContent = missionEditor.editMission(missionContent);
+
+        // Battle-damage persistence (CVIC backend): removes known-dead units
+        // and bakes scenery-destruction zones from weapon impacts. Unrelated
+        // to weather and much deeper miz surgery, so it lives in its own
+        // service; it no-ops for non-deployment missions and on any failure.
+        DestructionService destructionService = new DestructionService(WORKING_DIR);
+        replacedMissionContent = destructionService.apply(replacedMissionContent, dto.getMission());
 
         FileHandler.overwriteFile(WORKING_DIR, MISSION_FILE, replacedMissionContent);
 

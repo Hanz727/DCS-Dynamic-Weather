@@ -3,7 +3,7 @@ plugins {
 }
 
 group 'com.marlan'
-version '2.1.12'
+version '2.2.0'
 
 repositories {
     mavenCentral()
