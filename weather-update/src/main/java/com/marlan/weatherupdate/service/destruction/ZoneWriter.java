@@ -13,8 +13,9 @@ import java.util.regex.Pattern;
  * Bakes the impact list into the mission as scenery-destruction zones:
  *
  *   1. triggers.zones: every zone named CVIC_DZONE_* is replaced by one zone
- *      per impact (fresh sequential names, zoneIds above the surviving max).
- *      Manually-made zones are never touched.
+ *      per impact (fresh sequential names, zoneIds above the surviving max),
+ *      written `hidden = true` so dozens of generated circles never clutter
+ *      the mission maker's ME view. Manually-made zones are never touched.
  *   2. trigrules: the ME-side rule `CVIC_SCENERY_DESTRUCT` (a `1 ONCE`,
  *      MISSION START trigger) gets one a_scenery_destruction_zone action per
  *      zone at 100%. Created at the end of the rule list if missing.
@@ -87,13 +88,16 @@ final class ZoneWriter {
         return new Result(text, newZoneIds.size(), oldCvicShapes.size(), true);
     }
 
-    /** Position-independent identity of a zone (x/y/radius), for change
-     *  detection across runs (names/ids renumber freely). */
+    /** Position-independent identity of a zone (x/y/radius + hidden flag), for
+     *  change detection across runs (names/ids renumber freely). The hidden
+     *  flag is part of the identity so a flag-only change (e.g. hiding all
+     *  generated zones) still rewrites zones from before that change. */
     private static String shapeOf(String zoneValue) {
         String x = LuaTable.extract(zoneValue, Pattern.compile("\\[\"x\"\\]\\s*=\\s*([-0-9.]+)"));
         String y = LuaTable.extract(zoneValue, Pattern.compile("\\[\"y\"\\]\\s*=\\s*([-0-9.]+)"));
         String r = LuaTable.extract(zoneValue, Pattern.compile("\\[\"radius\"\\]\\s*=\\s*([-0-9.]+)"));
-        return round(x) + "/" + round(y) + "/" + round(r);
+        String hidden = LuaTable.extract(zoneValue, Pattern.compile("\\[\"hidden\"\\]\\s*=\\s*(true|false)"));
+        return round(x) + "/" + round(y) + "/" + round(r) + "/" + hidden;
     }
 
     private static String round(String v) {
@@ -117,7 +121,7 @@ final class ZoneWriter {
                 \t\t\t\t\t[4] = 0.15,
                 \t\t\t\t}, -- end of ["color"]
                 \t\t\t\t["properties"] = {},
-                \t\t\t\t["hidden"] = false,
+                \t\t\t\t["hidden"] = true,
                 \t\t\t\t["y"] = %.6f,
                 \t\t\t\t["x"] = %.6f,
                 \t\t\t\t["name"] = "%s",

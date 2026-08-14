@@ -100,21 +100,40 @@ class DestructionSurgeryTest {
             \t\t\t\t\t\t{
             \t\t\t\t\t\t\t[1] = \s
             \t\t\t\t\t\t\t{
+            \t\t\t\t\t\t\t\t["route"] = \s
+            \t\t\t\t\t\t\t\t{
+            \t\t\t\t\t\t\t\t\t["points"] = \s
+            \t\t\t\t\t\t\t\t\t{
+            \t\t\t\t\t\t\t\t\t\t[1] = \s
+            \t\t\t\t\t\t\t\t\t\t{
+            \t\t\t\t\t\t\t\t\t\t\t["alt"] = 12,
+            \t\t\t\t\t\t\t\t\t\t\t["y"] = 2000,
+            \t\t\t\t\t\t\t\t\t\t\t["x"] = 1000,
+            \t\t\t\t\t\t\t\t\t\t\t["speed"] = 0,
+            \t\t\t\t\t\t\t\t\t\t}, -- end of [1]
+            \t\t\t\t\t\t\t\t\t}, -- end of ["points"]
+            \t\t\t\t\t\t\t\t}, -- end of ["route"]
             \t\t\t\t\t\t\t\t["units"] = \s
             \t\t\t\t\t\t\t\t{
             \t\t\t\t\t\t\t\t\t[1] = \s
             \t\t\t\t\t\t\t\t\t{
             \t\t\t\t\t\t\t\t\t\t["type"] = "SNR_75V",
             \t\t\t\t\t\t\t\t\t\t["unitId"] = 157,
+            \t\t\t\t\t\t\t\t\t\t["y"] = 2000,
+            \t\t\t\t\t\t\t\t\t\t["x"] = 1000,
             \t\t\t\t\t\t\t\t\t\t["name"] = "SAM-1",
             \t\t\t\t\t\t\t\t\t}, -- end of [1]
             \t\t\t\t\t\t\t\t\t[2] = \s
             \t\t\t\t\t\t\t\t\t{
             \t\t\t\t\t\t\t\t\t\t["type"] = "S_75M_Volhov",
             \t\t\t\t\t\t\t\t\t\t["unitId"] = 158,
+            \t\t\t\t\t\t\t\t\t\t["y"] = 2222.5,
+            \t\t\t\t\t\t\t\t\t\t["x"] = 1111.5,
             \t\t\t\t\t\t\t\t\t\t["name"] = "SAM-2",
             \t\t\t\t\t\t\t\t\t}, -- end of [2]
             \t\t\t\t\t\t\t\t}, -- end of ["units"]
+            \t\t\t\t\t\t\t\t["y"] = 2000,
+            \t\t\t\t\t\t\t\t["x"] = 1000,
             \t\t\t\t\t\t\t\t["name"] = "BHR-SA-2-1",
             \t\t\t\t\t\t\t}, -- end of [1]
             \t\t\t\t\t\t\t[2] = \s
@@ -195,6 +214,15 @@ class DestructionSurgeryTest {
                 "survivor should be re-indexed to [1]");
         assertFalse(result.text().matches("(?s).*\\[2] = .{0,250}S_75M_Volhov.*"),
                 "survivor must no longer carry its old [2] index");
+        // Lead removed → the group re-anchors on the NEW lead: route point 1
+        // and the group-level x/y take the survivor's position (1111.5/2222.5),
+        // so DCS doesn't teleport it onto the dead lead's spot at spawn.
+        assertFalse(result.text().contains("[\"x\"] = 1000"),
+                "no anchor may still point at the removed lead");
+        assertEquals(3, result.text().split("\\[\"x\"\\] = 1111\\.5", -1).length - 1,
+                "route point 1 + group x + surviving unit all carry the new lead's x");
+        assertEquals(3, result.text().split("\\[\"y\"\\] = 2222\\.5", -1).length - 1,
+                "route point 1 + group y + surviving unit all carry the new lead's y");
     }
 
     @Test
@@ -244,6 +272,30 @@ class DestructionSurgeryTest {
                 first.text(), List.of(impact(1000, 2000, 50)));
         assertFalse(second.changed());
         assertEquals(first.text(), second.text());
+    }
+
+    @Test
+    void changelogDedupesTheABCatchUpRun(@org.junit.jupiter.api.io.TempDir Path tmp) throws IOException {
+        UnitRemover.Removed r1 = new UnitRemover.Removed(1212L, "Static Small warehouse 3-2-1", "G1", true);
+        UnitRemover.Removed r2 = new UnitRemover.Removed(1213L, "Static Comms tower M-6-1", "G2", true);
+        // _B run after the kills: two removals + 2 zones -> full entry
+        ChangelogWriter.append(tmp.toString(), "Foo_v1.miz", List.of(r1, r2),
+                java.util.Map.of(), 2, 0, true);
+        Path file = tmp.resolve("changelog").resolve("Foo_v1_changelog.md");
+        String first = Files.readString(file);
+        assertTrue(first.contains("`1212`") && first.contains("`1213`"));
+        // _A catch-up: SAME state applied to the other file -> nothing appended
+        ChangelogWriter.append(tmp.toString(), "Foo_v1.miz", List.of(r1, r2),
+                java.util.Map.of(), 2, 0, true);
+        assertEquals(first, Files.readString(file), "catch-up run must not duplicate the entry");
+        // later: one genuinely new kill + a new zone -> only the news is listed
+        UnitRemover.Removed r3 = new UnitRemover.Removed(1300L, "New victim", "G3", false);
+        ChangelogWriter.append(tmp.toString(), "Foo_v1.miz", List.of(r1, r3),
+                java.util.Map.of(), 3, 2, true);
+        String third = Files.readString(file);
+        assertEquals(1, third.split("`1212`", -1).length - 1, "old unit listed exactly once");
+        assertTrue(third.contains("`1300`"), "the new kill is listed");
+        assertTrue(third.contains("3 impact zone(s)"), "the new zone count is reported");
     }
 
     /** Full-scale sanity against the real deployment miz when it exists on

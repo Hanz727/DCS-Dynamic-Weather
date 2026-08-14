@@ -23,9 +23,15 @@ public class DirHandler {
             if (!Files.exists(Path.of(args[0]))) {
                 throw new IllegalArgumentException("Directory does not exist: " + args[0]);
             }
-            System.setProperty("user.dir", args[0]);
+            // Round-trip through Path to collapse doubled separators: java.nio
+            // tolerates "C:\\Users\\..." but raw-string consumers (7-Zip via
+            // ProcessBuilder) fail on the empty path components with "The
+            // filename, directory name, or volume label syntax is incorrect".
+            // An over-escaped path can arrive from the mission-side Lua when a
+            // trigger was edited with serialized (\\) backslashes.
+            System.setProperty("user.dir", Path.of(args[0]).normalize().toString());
         }
-        String workingDir = getProperty("user.dir") + "\\";
+        String workingDir = Path.of(getProperty("user.dir")).normalize() + "\\";
 
         Path workingDirPath = Path.of(workingDir);
         if (!Files.isReadable(workingDirPath) || !Files.isWritable(workingDirPath)) {

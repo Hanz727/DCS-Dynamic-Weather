@@ -89,7 +89,17 @@ function copyFileWithNewIdentifier(newIdentifier)
         return
     end
 
-    os.execute("copy \"" .. originalFilePath .. "\" \"" .. newFilePath .. "\"")
+    -- Pure-Lua copy (File.copy): os.execute("copy ...") from inside the DCS
+    -- process failed silently on some missions, stranding the whole restart
+    -- chain on a miz that was never created.
+    local written, reason = DCSDynamicWeather.File.copy(originalFilePath, newFilePath)
+    if not written or not DCSDynamicWeather.File.exists(newFilePath) then
+        DCSDynamicWeather.Logger.error(THIS_METHOD,
+            "Copy FAILED (" .. tostring(reason) .. "): " .. originalFilePath .. " -> " .. newFilePath)
+    else
+        DCSDynamicWeather.Logger.info(THIS_METHOD,
+            "Copied " .. written .. " bytes: " .. newFilePath)
+    end
 end
 
 function invertMissionIdentifier(missionName)

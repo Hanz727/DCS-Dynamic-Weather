@@ -124,6 +124,7 @@ final class UnitRemover {
             return null;
         }
         removed.addAll(dropped);
+        boolean leadRemoved = wasLeadDropped(units, kept);
         // Splice the rebuilt units content into the group's value text. The
         // value is the group's `{...}` table, so its absolute offset is the
         // first brace after the entry's `[n] = ` header.
@@ -132,7 +133,70 @@ final class UnitRemover {
         int vRelStart = unitsTable.contentStart() - valueStart;
         int vRelEnd = unitsTable.contentEnd() - valueStart;
         String units_ = LuaTable.emitEntries(kept, depthOf(mission, unitsTable.contentStart()) + 1);
-        return value.substring(0, vRelStart) + units_ + value.substring(vRelEnd);
+        String rebuilt = value.substring(0, vRelStart) + units_ + value.substring(vRelEnd);
+        if (leadRemoved) {
+            // DCS snaps a ground group's FIRST unit onto the route's first
+            // waypoint at spawn. With the old lead removed, the next unit
+            // would teleport onto the dead lead's spot — re-anchor the route
+            // start (and the group's own x/y) onto the NEW lead's position so
+            // every survivor spawns exactly where the ME shows it.
+            String leadX = LuaTable.extract(kept.get(0), X_FIELD);
+            String leadY = LuaTable.extract(kept.get(0), Y_FIELD);
+            if (leadX != null && leadY != null) {
+                rebuilt = retargetGroupAnchor(rebuilt, leadX, leadY);
+            }
+        }
+        return rebuilt;
+    }
+
+    /** True when the original first unit is not the rebuilt first unit. */
+    private static boolean wasLeadDropped(List<LuaTable.Entry> original, List<String> kept) {
+        return !original.isEmpty() && !kept.isEmpty()
+                && !original.get(0).value().equals(kept.get(0));
+    }
+
+    private static final Pattern X_FIELD = Pattern.compile("\\[\"x\"\\]\\s*=\\s*([-0-9.e]+)");
+    private static final Pattern Y_FIELD = Pattern.compile("\\[\"y\"\\]\\s*=\\s*([-0-9.e]+)");
+
+    /** Rewrites the group's route point 1 x/y and the group-level x/y (the
+     *  fields after the units table) to the new lead's position. */
+    private static String retargetGroupAnchor(String groupValue, String x, String y) {
+        String out = groupValue;
+        // Route start: ["route"] → ["points"] → entry [1].
+        LuaTable.KeyTable route = LuaTable.findKeyTable(out, "route", 0, out.length());
+        if (route != null) {
+            LuaTable.KeyTable points = LuaTable.findKeyTable(
+                    out, "points", route.contentStart(), route.contentEnd());
+            if (points != null) {
+                List<LuaTable.Entry> pts = LuaTable.entries(
+                        out, points.contentStart(), points.contentEnd());
+                if (!pts.isEmpty()) {
+                    LuaTable.Entry first = pts.get(0);
+                    int pStart = out.indexOf('{', first.start());
+                    String pointValue = first.value();
+                    String updated = replaceFirstField(
+                            replaceFirstField(pointValue, Y_FIELD, "[\"y\"] = " + y),
+                            X_FIELD, "[\"x\"] = " + x);
+                    out = out.substring(0, pStart) + updated
+                            + out.substring(pStart + pointValue.length());
+                }
+            }
+        }
+        // Group-level x/y: the first ["y"]/["x"] AFTER the units table close.
+        LuaTable.KeyTable unitsTable = LuaTable.findKeyTable(out, "units", 0, out.length());
+        if (unitsTable != null) {
+            String tail = out.substring(unitsTable.contentEnd());
+            tail = replaceFirstField(tail, Y_FIELD, "[\"y\"] = " + y);
+            tail = replaceFirstField(tail, X_FIELD, "[\"x\"] = " + x);
+            out = out.substring(0, unitsTable.contentEnd()) + tail;
+        }
+        return out;
+    }
+
+    private static String replaceFirstField(String text, Pattern field, String replacement) {
+        java.util.regex.Matcher m = field.matcher(text);
+        if (!m.find()) return text;
+        return text.substring(0, m.start()) + replacement + text.substring(m.end());
     }
 
     /** The group's own ["name"] — the first name that is NOT inside the units
