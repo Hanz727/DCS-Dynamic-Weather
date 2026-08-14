@@ -29,18 +29,23 @@ import java.util.regex.Pattern;
 final class ChangelogWriter {
     private static final Log log = Log.getInstance();
     private static final DateTimeFormatter STAMP = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
-    // A removed-unit bullet as this writer emits it: "- `1212` ...".
-    private static final Pattern LOGGED_UNIT = Pattern.compile("(?m)^- `(\\d+)`");
-    private static final Pattern LOGGED_ZONES =
-            Pattern.compile("\\*\\*Scenery destruction:\\*\\* (\\d+) impact");
+    // A removed-unit bullet as this writer emits it ("- 1212 ..."), tolerant
+    // of the older backticked form so pre-existing changelogs still dedupe.
+    private static final Pattern LOGGED_UNIT = Pattern.compile("(?m)^- `?(\\d+)`? ");
+    // "zones 4 -> 7" (current), tolerant of the older prose forms.
+    private static final Pattern LOGGED_ZONES = Pattern.compile(
+            "zones \\d+ -> (\\d+)|(?:\\*\\*)?Scenery destruction:(?:\\*\\*)? (\\d+) ");
 
     private ChangelogWriter() {
     }
 
-    static void append(String workingDir, String baseMizName, List<UnitRemover.Removed> removed,
-                       Map<Long, DestroyedUnit> reportById, int zonesWritten, int zonesBefore,
-                       boolean zonesChanged) {
-        if (removed.isEmpty() && !zonesChanged) return;
+    /** Appends the run's diff and returns the appended entry text, or null
+     *  when nothing NEW happened (deduped/no-op run) — the null/non-null
+     *  answer doubles as the "worth posting to Discord" signal. */
+    static String append(String workingDir, String baseMizName, List<UnitRemover.Removed> removed,
+                         Map<Long, DestroyedUnit> reportById, int zonesWritten, int zonesBefore,
+                         boolean zonesChanged) {
+        if (removed.isEmpty() && !zonesChanged) return null;
 
         String base = baseMizName.endsWith(".miz")
                 ? baseMizName.substring(0, baseMizName.length() - 4)
@@ -73,57 +78,52 @@ final class ChangelogWriter {
         int lastLoggedZones = -1;
         Matcher zoneLines = LOGGED_ZONES.matcher(existing);
         while (zoneLines.find()) {
-            lastLoggedZones = Integer.parseInt(zoneLines.group(1));
+            String count = zoneLines.group(1) != null ? zoneLines.group(1) : zoneLines.group(2);
+            lastLoggedZones = Integer.parseInt(count);
         }
         boolean zoneNews = zonesChanged && zonesWritten != lastLoggedZones;
-        if (fresh.isEmpty() && !zoneNews) return; // file synced, nothing NEW happened
+        if (fresh.isEmpty() && !zoneNews) return null; // file synced, nothing NEW happened
         removed = fresh;
 
-        // ASCII only throughout — the file gets opened by whatever tool is at
-        // hand (and pasted into Discord), so no em-dashes/arrows to mojibake.
+        // Deliberately near-plain text: Discord renders md headers huge and a
+        // bold/italic/backtick mix reads as noise there — keep it calm and
+        // ASCII-only (no em-dashes/arrows to mojibake in other tools either).
+        // The title line goes to the FILE only — the Discord post (the
+        // returned entry) skips it, the attached miz already names the mission.
+        String header = Files.exists(file) ? "" : base + " changelog\n";
         StringBuilder md = new StringBuilder();
-        if (!Files.exists(file)) {
-            md.append("# ").append(base).append(" changelog\n");
-        }
-        md.append("\n## ").append(LocalDateTime.now().format(STAMP));
-        md.append(" - ").append(removed.size()).append(" unit(s) removed, ")
-                .append(zonesWritten).append(" destruction zone(s)\n");
-
+        md.append("\n").append(LocalDateTime.now().format(STAMP));
         if (!removed.isEmpty()) {
-            md.append("**Removed from mission:**\n");
-            for (UnitRemover.Removed r : removed) {
-                md.append("- `").append(r.unitId()).append("` ");
-                DestroyedUnit info = reportById.get(r.unitId());
-                if (info != null && info.getType() != null && !info.getType().isEmpty()) {
-                    md.append("**").append(info.getType()).append("** ");
-                }
-                md.append('`').append(r.unitName()).append('`');
-                md.append(" _(").append(r.groupName());
-                if (r.wholeGroupGone()) md.append(", group now empty -> removed whole");
-                md.append(")_");
-                String evidence = evidenceOf(info);
-                if (!evidence.isEmpty()) md.append(" - ").append(evidence);
-                md.append('\n');
-            }
+            md.append(" | -").append(removed.size()).append(removed.size() == 1 ? " unit" : " units");
         }
         if (zoneNews) {
-            md.append("**Scenery destruction:** ").append(zonesWritten)
-                    .append(" impact zone(s) baked into `").append(ZoneWriter.TRIGGER_COMMENT)
-                    .append("`");
-            if (zonesBefore != zonesWritten) {
-                md.append(" _(was ").append(zonesBefore).append(")_");
+            md.append(" | zones ").append(zonesBefore).append(" -> ").append(zonesWritten);
+        }
+        md.append('\n');
+
+        for (UnitRemover.Removed r : removed) {
+            md.append("- ").append(r.unitId()).append(' ');
+            DestroyedUnit info = reportById.get(r.unitId());
+            if (info != null && info.getType() != null && !info.getType().isEmpty()) {
+                md.append(info.getType()).append(' ');
             }
+            md.append('(').append(r.unitName());
+            if (r.wholeGroupGone()) md.append(", group removed");
+            md.append(')');
+            String evidence = evidenceOf(info);
+            if (!evidence.isEmpty()) md.append(" - ").append(evidence);
             md.append('\n');
         }
 
         try {
             Files.createDirectories(dir);
-            Files.writeString(file, md.toString(),
+            Files.writeString(file, header + md,
                     StandardOpenOption.CREATE, StandardOpenOption.APPEND);
             log.info("Battle-damage changelog updated: " + file);
         } catch (IOException ioe) {
             log.error("Could not write battle-damage changelog: " + ioe.getMessage());
         }
+        return md.toString();
     }
 
     /** Short human line from the destroyed report's first source, e.g.
@@ -133,7 +133,7 @@ final class ChangelogWriter {
         DestroyedSource s = info.getSources().get(0);
         StringBuilder sb = new StringBuilder();
         if (s.getKilledBy() != null) {
-            sb.append("killed by ").append(s.getKilledBy());
+            sb.append(s.getKilledBy());
         } else if (s.getDmpi() != null) {
             sb.append("DMPI ").append(s.getDmpi());
             if (s.getBda() != null) sb.append(" (BDA ").append(s.getBda()).append(')');

@@ -52,8 +52,9 @@ public class MizUtility {
      * Updates .miz with new mission file using 7zip. Backs up the original first
      * and restores it if the resulting archive fails validation, so a partial or
      * empty 7z write cannot leave a poisoned _A/_B file behind.
+     * Returns true when the archive was updated and validated.
      */
-    public void updateMiz(String dir, String mizName, String missionFile) {
+    public boolean updateMiz(String dir, String mizName, String missionFile) {
         log.info("Updating: " + dir + mizName);
         Path miz = Path.of(dir + mizName);
         Path backup = Path.of(dir + mizName + ".bak");
@@ -66,7 +67,7 @@ public class MizUtility {
             }
         } catch (IOException ioe) {
             log.error("Could not back up miz before update: " + ioe.getMessage());
-            return;
+            return false;
         }
 
         ProcessBuilder pb = new ProcessBuilder(
@@ -93,7 +94,7 @@ public class MizUtility {
                     log.error("Could not delete invalid miz: " + ioe.getMessage());
                 }
             }
-            return;
+            return false;
         }
 
         if (haveBackup) {
@@ -103,6 +104,7 @@ public class MizUtility {
                 log.error("Could not delete miz backup: " + ioe.getMessage());
             }
         }
+        return true;
     }
 
     /**

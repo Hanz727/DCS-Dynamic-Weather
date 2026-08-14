@@ -1,5 +1,6 @@
 package com.marlan.weatherupdate.service.destruction;
 
+import com.marlan.shared.model.Config;
 import com.marlan.shared.utilities.Log;
 import com.marlan.weatherupdate.service.destruction.model.DestroyedReport;
 import com.marlan.weatherupdate.service.destruction.model.DestroyedUnit;
@@ -36,14 +37,16 @@ public class DestructionService {
 
     private final String workingDir;
     private final DestructionClient client;
+    private final boolean enabled;
 
-    public DestructionService(String workingDir) {
-        this(workingDir, new DestructionClient());
+    public DestructionService(String workingDir, Config config) {
+        this(workingDir, new DestructionClient(), config.isUnitRemoval());
     }
 
-    DestructionService(String workingDir, DestructionClient client) {
+    DestructionService(String workingDir, DestructionClient client, boolean enabled) {
         this.workingDir = workingDir;
         this.client = client;
+        this.enabled = enabled;
     }
 
     /** The weather script updates _A/_B copies; damage state belongs to the
@@ -52,16 +55,27 @@ public class DestructionService {
         return mizName.replaceFirst("(?i)(_A|_B)(?=\\.miz$)", "");
     }
 
+    /** The edited mission text plus the changelog entry this run produced —
+     *  `changelogEntry` is null when nothing NEW happened (dedupe/no-op/
+     *  disabled/failed), which is also the "don't post to Discord" signal. */
+    public record Result(String missionContent, String changelogEntry) {
+    }
+
     /** Applies the battle-damage state to the extracted mission text.
-     *  Returns the text unchanged on any failure. */
-    public String apply(String missionContent, String mizName) {
+     *  Returns the text unchanged on any failure, and untouched when the
+     *  `unit_removal` config flag is off (weather-only mode). */
+    public Result apply(String missionContent, String mizName) {
+        if (!enabled) {
+            log.info("Battle damage: disabled by config (unit_removal=false); weather only");
+            return new Result(missionContent, null);
+        }
         String baseMiz = baseMissionName(mizName);
         try {
             DestroyedReport report = client.getDestroyed(baseMiz);
             if (report == null || !report.isDeploymentMission()) {
                 log.info("Battle damage: " + baseMiz
                         + " is not the current deployment mission; skipping");
-                return missionContent;
+                return new Result(missionContent, null);
             }
             List<WeaponImpact> impacts = client.getImpacts(baseMiz).stream()
                     // The weapon's own impact point only — splash secondaries
@@ -84,17 +98,17 @@ public class DestructionService {
             log.info("Battle damage: removed " + removal.removed().size() + "/" + ids.size()
                     + " dead unit(s), " + zones.zonesWritten() + " destruction zone(s)"
                     + (zones.changed() ? "" : " (unchanged)"));
-            ChangelogWriter.append(workingDir, baseMiz, removal.removed(), byId,
+            String entry = ChangelogWriter.append(workingDir, baseMiz, removal.removed(), byId,
                     zones.zonesWritten(), zones.zonesBefore(), zones.changed());
-            return zones.text();
+            return new Result(zones.text(), entry);
         } catch (InterruptedException ie) {
             Thread.currentThread().interrupt();
             log.error("Battle damage pass interrupted; mission left untouched");
-            return missionContent;
+            return new Result(missionContent, null);
         } catch (Exception e) {
             log.error("Battle damage pass failed (" + e.getMessage()
                     + "); mission left untouched");
-            return missionContent;
+            return new Result(missionContent, null);
         }
     }
 }

@@ -9,6 +9,7 @@ import com.marlan.weatherupdate.model.metar.AVWXMetar;
 import com.marlan.weatherupdate.model.station.AVWXStation;
 import com.marlan.weatherupdate.service.airplanclient.AirplanClient;
 import com.marlan.weatherupdate.service.avwxclient.AVWXClient;
+import com.marlan.weatherupdate.service.destruction.ChangelogDiscordPoster;
 import com.marlan.weatherupdate.service.destruction.DestructionService;
 import com.marlan.weatherupdate.service.missioneditor.MissionEditor;
 import com.marlan.weatherupdate.service.missioneditor.MissionValues;
@@ -82,14 +83,24 @@ public class WeatherUpdateController {
         // and bakes scenery-destruction zones from weapon impacts. Unrelated
         // to weather and much deeper miz surgery, so it lives in its own
         // service; it no-ops for non-deployment missions and on any failure.
-        DestructionService destructionService = new DestructionService(WORKING_DIR);
-        replacedMissionContent = destructionService.apply(replacedMissionContent, dto.getMission());
+        DestructionService destructionService = new DestructionService(WORKING_DIR, config);
+        DestructionService.Result damage =
+                destructionService.apply(replacedMissionContent, dto.getMission());
+        replacedMissionContent = damage.missionContent();
 
         FileHandler.overwriteFile(WORKING_DIR, MISSION_FILE, replacedMissionContent);
 
-        mizUtility.updateMiz(WORKING_DIR, dto.getMission(), MISSION_FILE);
+        boolean mizUpdated = mizUtility.updateMiz(WORKING_DIR, dto.getMission(), MISSION_FILE);
 
         FileHandler.deleteFile(WORKING_DIR, MISSION_FILE);
+
+        // Changelog + updated miz to the mission editors' webhook — ONLY when
+        // units/zones actually changed this run (weather-only updates never
+        // post here; METOC covers those) and the rebuilt archive validated.
+        if (mizUpdated && damage.changelogEntry() != null && config.isOutputMizToDiscord()) {
+            new ChangelogDiscordPoster(WORKING_DIR)
+                    .post(damage.changelogEntry(), WORKING_DIR + dto.getMission());
+        }
     }
 
 }

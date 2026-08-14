@@ -15,5 +15,7 @@
   "cyclic_windows": 10,
   "cyclic_length": 75,
   "pre_event_time": 1500,
-  "recovery_duration": 900
+  "recovery_duration": 900,
+  "unit_removal": true,
+  "output_miz_to_discord": false
 }

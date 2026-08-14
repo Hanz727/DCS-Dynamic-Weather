@@ -279,23 +279,26 @@ class DestructionSurgeryTest {
         UnitRemover.Removed r1 = new UnitRemover.Removed(1212L, "Static Small warehouse 3-2-1", "G1", true);
         UnitRemover.Removed r2 = new UnitRemover.Removed(1213L, "Static Comms tower M-6-1", "G2", true);
         // _B run after the kills: two removals + 2 zones -> full entry
-        ChangelogWriter.append(tmp.toString(), "Foo_v1.miz", List.of(r1, r2),
+        String entry = ChangelogWriter.append(tmp.toString(), "Foo_v1.miz", List.of(r1, r2),
                 java.util.Map.of(), 2, 0, true);
+        assertNotNull(entry, "real news must produce an entry (the Discord-post signal)");
         Path file = tmp.resolve("changelog").resolve("Foo_v1_changelog.md");
         String first = Files.readString(file);
-        assertTrue(first.contains("`1212`") && first.contains("`1213`"));
+        assertTrue(first.contains("- 1212 ") && first.contains("- 1213 "));
+        assertFalse(first.contains("#") || first.contains("**"),
+                "calm format: no md headers or bold (Discord renders them loudly)");
         // _A catch-up: SAME state applied to the other file -> nothing appended
-        ChangelogWriter.append(tmp.toString(), "Foo_v1.miz", List.of(r1, r2),
-                java.util.Map.of(), 2, 0, true);
+        assertNull(ChangelogWriter.append(tmp.toString(), "Foo_v1.miz", List.of(r1, r2),
+                java.util.Map.of(), 2, 0, true), "catch-up must return null (no Discord post)");
         assertEquals(first, Files.readString(file), "catch-up run must not duplicate the entry");
         // later: one genuinely new kill + a new zone -> only the news is listed
         UnitRemover.Removed r3 = new UnitRemover.Removed(1300L, "New victim", "G3", false);
         ChangelogWriter.append(tmp.toString(), "Foo_v1.miz", List.of(r1, r3),
                 java.util.Map.of(), 3, 2, true);
         String third = Files.readString(file);
-        assertEquals(1, third.split("`1212`", -1).length - 1, "old unit listed exactly once");
-        assertTrue(third.contains("`1300`"), "the new kill is listed");
-        assertTrue(third.contains("3 impact zone(s)"), "the new zone count is reported");
+        assertEquals(1, third.split("- 1212 ", -1).length - 1, "old unit listed exactly once");
+        assertTrue(third.contains("- 1300 "), "the new kill is listed");
+        assertTrue(third.contains("zones 2 -> 3"), "the new zone count is reported tersely");
     }
 
     /** Full-scale sanity against the real deployment miz when it exists on
