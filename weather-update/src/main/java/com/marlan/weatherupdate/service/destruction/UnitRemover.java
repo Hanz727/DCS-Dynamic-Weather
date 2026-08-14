@@ -14,7 +14,11 @@ final class UnitRemover {
     private static final Pattern UNIT_ID = Pattern.compile("\\[\"unitId\"\\]\\s*=\\s*(\\d+)");
     private static final Pattern NAME = Pattern.compile("\\[\"name\"\\]\\s*=\\s*\"((?:[^\"\\\\]|\\\\.)*)\"");
     private static final String[] COALITIONS = {"red", "blue", "neutrals"};
-    private static final String[] CATEGORIES = {"vehicle", "static", "ship", "plane", "helicopter"};
+    // Only these categories are ever removable: planes/helicopters/ships are
+    // editor-managed and untouchable even if an id for one arrives (defense in
+    // depth — the backend filters them too). `static` covers props of any
+    // shape, including static plane/ship set dressing.
+    private static final String[] CATEGORIES = {"vehicle", "static"};
 
     /** A unit actually excised this run (for the changelog). */
     record Removed(long unitId, String unitName, String groupName, boolean wholeGroupGone) {
