@@ -28,7 +28,10 @@ import java.util.regex.Pattern;
  */
 final class ChangelogWriter {
     private static final Log log = Log.getInstance();
-    private static final DateTimeFormatter STAMP = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
+    // Header carries the DATE only; the per-unit lines carry the exact kill
+    // timestamp instead (kills can be days older than the entry that syncs
+    // them into the miz) — one precision per place, not a mix.
+    private static final DateTimeFormatter STAMP = DateTimeFormatter.ofPattern("yyyy-MM-dd");
     // A removed-unit bullet as this writer emits it ("- 1212 ..."), tolerant
     // of the older backticked form so pre-existing changelogs still dedupe.
     private static final Pattern LOGGED_UNIT = Pattern.compile("(?m)^- `?(\\d+)`? ");
@@ -84,6 +87,11 @@ final class ChangelogWriter {
         boolean zoneNews = zonesChanged && zonesWritten != lastLoggedZones;
         if (fresh.isEmpty() && !zoneNews) return null; // file synced, nothing NEW happened
         removed = fresh;
+        // MISSION-level "before": the count this changelog last reported. The
+        // per-file count is only a fallback for the first-ever entry — an A/B
+        // copy that was never baked yet reads 0 zones even though the mission
+        // history moved on (a fresh _A after _B got 17 would log "0 -> 22").
+        int zonesBeforeLogged = lastLoggedZones >= 0 ? lastLoggedZones : zonesBefore;
 
         // Deliberately near-plain text: Discord renders md headers huge and a
         // bold/italic/backtick mix reads as noise there — keep it calm and
@@ -97,7 +105,7 @@ final class ChangelogWriter {
             md.append(" | -").append(removed.size()).append(removed.size() == 1 ? " unit" : " units");
         }
         if (zoneNews) {
-            md.append(" | zones ").append(zonesBefore).append(" -> ").append(zonesWritten);
+            md.append(" | zones ").append(zonesBeforeLogged).append(" -> ").append(zonesWritten);
         }
         md.append('\n');
 
@@ -127,7 +135,7 @@ final class ChangelogWriter {
     }
 
     /** Short human line from the destroyed report's first source, e.g.
-     *  "killed by Dave (VY11) with GBU-31(V)2/B (2026-08-10)". */
+     *  "Dave (VY11) with GBU-31(V)2/B (2026-08-10 21:38)". */
     private static String evidenceOf(DestroyedUnit info) {
         if (info == null || info.getSources() == null || info.getSources().isEmpty()) return "";
         DestroyedSource s = info.getSources().get(0);
@@ -138,8 +146,12 @@ final class ChangelogWriter {
             sb.append("DMPI ").append(s.getDmpi());
             if (s.getBda() != null) sb.append(" (BDA ").append(s.getBda()).append(')');
         }
-        if (s.getDate() != null) {
-            sb.append(sb.isEmpty() ? "" : " ").append('(').append(s.getDate()).append(')');
+        // Kill TIME only — the header already carries the date. Sources with
+        // no time (BDA/override removals) fall back to their report date so
+        // they keep some temporal context.
+        String when = s.getTime() != null ? s.getTime() : s.getDate();
+        if (when != null) {
+            sb.append(sb.isEmpty() ? "" : " ").append('(').append(when).append(')');
         }
         return sb.toString();
     }

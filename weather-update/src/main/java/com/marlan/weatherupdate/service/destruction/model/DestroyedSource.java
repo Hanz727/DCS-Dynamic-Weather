@@ -10,6 +10,7 @@ import lombok.Data;
 public class DestroyedSource {
     private String kind; // red_ground | bda | override
     private String date;
+    private String time; // "HH:MM" of the kill — red_ground only
     private String session;
     private String cause;
     private String killedBy;

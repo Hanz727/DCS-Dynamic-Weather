@@ -103,7 +103,7 @@ public class ChangelogDiscordPoster {
     String truncate(String entry) {
         String content = entry.strip();
         if (content.length() <= MAX_CONTENT) return content;
-        return content.substring(0, MAX_CONTENT) + "\n... _(truncated - full changelog in repo)_";
+        return content.substring(0, MAX_CONTENT) + "\n... (truncated, see mymission/changelog)";
     }
 
     /** payload_json part (message content) + files[0] part (the miz). */

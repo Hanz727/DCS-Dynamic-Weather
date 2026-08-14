@@ -291,14 +291,17 @@ class DestructionSurgeryTest {
         assertNull(ChangelogWriter.append(tmp.toString(), "Foo_v1.miz", List.of(r1, r2),
                 java.util.Map.of(), 2, 0, true), "catch-up must return null (no Discord post)");
         assertEquals(first, Files.readString(file), "catch-up run must not duplicate the entry");
-        // later: one genuinely new kill + a new zone -> only the news is listed
+        // later: one genuinely new kill + a new zone, applied to the OTHER
+        // A/B copy that was never baked (per-file zonesBefore = 0) -> the
+        // header still counts from the MISSION history, not the file
         UnitRemover.Removed r3 = new UnitRemover.Removed(1300L, "New victim", "G3", false);
         ChangelogWriter.append(tmp.toString(), "Foo_v1.miz", List.of(r1, r3),
-                java.util.Map.of(), 3, 2, true);
+                java.util.Map.of(), 3, 0, true);
         String third = Files.readString(file);
         assertEquals(1, third.split("- 1212 ", -1).length - 1, "old unit listed exactly once");
         assertTrue(third.contains("- 1300 "), "the new kill is listed");
-        assertTrue(third.contains("zones 2 -> 3"), "the new zone count is reported tersely");
+        assertTrue(third.contains("zones 2 -> 3"),
+                "zone delta counts from the last LOGGED total, not the fresh file's 0");
     }
 
     /** Full-scale sanity against the real deployment miz when it exists on
