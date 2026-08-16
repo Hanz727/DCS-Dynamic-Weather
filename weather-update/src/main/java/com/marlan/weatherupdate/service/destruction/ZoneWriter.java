@@ -3,10 +3,9 @@ package com.marlan.weatherupdate.service.destruction;
 import com.marlan.weatherupdate.service.destruction.model.WeaponImpact;
 
 import java.util.ArrayList;
-import java.util.LinkedHashSet;
+import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
-import java.util.Set;
 import java.util.regex.Pattern;
 
 /**
@@ -50,7 +49,7 @@ final class ZoneWriter {
         List<LuaTable.Entry> zoneEntries = LuaTable.entries(
                 mission, zones.contentStart(), zones.contentEnd());
         List<String> kept = new ArrayList<>();
-        Set<String> oldCvicShapes = new LinkedHashSet<>();
+        List<String> oldCvicShapes = new ArrayList<>();
         long maxZoneId = 99; // DCS starts zone ids at 100
         for (LuaTable.Entry zone : zoneEntries) {
             String name = LuaTable.extract(zone.value(), ZONE_NAME);
@@ -64,7 +63,7 @@ final class ZoneWriter {
         }
 
         List<Long> newZoneIds = new ArrayList<>();
-        Set<String> newShapes = new LinkedHashSet<>();
+        List<String> newShapes = new ArrayList<>();
         int seq = 0;
         for (WeaponImpact impact : impacts) {
             long zoneId = maxZoneId + (++seq);
@@ -75,7 +74,10 @@ final class ZoneWriter {
         }
         // Same impact picture as last run and nothing else to do → no rewrite,
         // so repeated weather updates don't churn the miz (or the changelog).
-        if (oldCvicShapes.equals(newShapes)) {
+        // Multiset comparison (sorted lists), not sets: two zones CAN share a
+        // shape (duplicate impacts, or a copy-pasted hand-made zone), and a
+        // set would both under-count them and miss a 2-vs-1 change.
+        if (sorted(oldCvicShapes).equals(sorted(newShapes))) {
             return new Result(mission, newShapes.size(), oldCvicShapes.size(), false);
         }
 
@@ -86,6 +88,12 @@ final class ZoneWriter {
         // ── 2 + 3. trigger rule + compiled mirror ───────────────────────────
         text = writeTrigger(text, newZoneIds);
         return new Result(text, newZoneIds.size(), oldCvicShapes.size(), true);
+    }
+
+    private static List<String> sorted(List<String> shapes) {
+        List<String> copy = new ArrayList<>(shapes);
+        Collections.sort(copy);
+        return copy;
     }
 
     /** Position-independent identity of a zone (x/y/radius + hidden flag), for

@@ -263,6 +263,27 @@ class DestructionSurgeryTest {
                 "[2] = \"if mission.trig.conditions[2]() then mission.trig.actions[2]() end\""));
     }
 
+    /** The v6.3 field bug: the mission had 6 hand-made CVIC zones, two of them
+     *  shape-identical (copy-paste), and the changelog reported "5 -> 13" —
+     *  shape identity must drive change DETECTION only, never the counts. */
+    @Test
+    void duplicateShapedZonesCountIndividually() {
+        ZoneWriter.Result baked = ZoneWriter.write(MISSION, List.of(
+                impact(1000, 2000, 50), impact(1000, 2000, 50), impact(3000, 4000, 25)));
+        assertEquals(3, baked.zonesWritten(), "duplicate impacts each get a zone");
+        ZoneWriter.Result next = ZoneWriter.write(baked.text(), List.of(impact(5000, 6000, 10)));
+        assertEquals(3, next.zonesBefore(), "all 3 old zones counted, dupes included");
+        // same shapes but one copy fewer → a real change, not a no-op
+        ZoneWriter.Result dropped = ZoneWriter.write(baked.text(), List.of(
+                impact(1000, 2000, 50), impact(3000, 4000, 25)));
+        assertTrue(dropped.changed(), "2-vs-1 copies of a shape is a change");
+        assertEquals(2, dropped.zonesWritten());
+        // identical multiset (any order) stays a no-op
+        ZoneWriter.Result reordered = ZoneWriter.write(baked.text(), List.of(
+                impact(3000, 4000, 25), impact(1000, 2000, 50), impact(1000, 2000, 50)));
+        assertFalse(reordered.changed(), "same multiset in another order is a no-op");
+    }
+
     @Test
     void identicalImpactSetIsANoOp() {
         ZoneWriter.Result first = ZoneWriter.write(
