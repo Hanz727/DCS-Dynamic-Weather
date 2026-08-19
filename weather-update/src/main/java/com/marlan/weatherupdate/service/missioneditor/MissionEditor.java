@@ -309,8 +309,10 @@ public class MissionEditor {
             return mission;
         }
 
+        // No preset = no line: assigning nil is identical to omitting the key in
+        // Lua, and DCS's serializer never writes nil (strict parsers choke on it).
         String presetLine = sel.presetName().isEmpty()
-                ? "            [\"preset\"] = nil,\n"
+                ? ""
                 : "            [\"preset\"] = \"" + sel.presetName() + "\",\n";
 
         String replacement = "[\"clouds\"] = \n"
